@@ -97,22 +97,18 @@ class StationaryKernel(Kernel):
     def __init__(
         self,
         dim: int,
-        length_scales: List[float],
+        lengthscales: List[float],
         name="eq_kernel",
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
 
         # Check length scales are positive
-        assert all([l > 0 for l in length_scales])
-        assert len(length_scales) == 1, (
-            "Only one length scale is supported for now."
-            "We will add this in the future."
-        )
+        assert all([l > 0 for l in lengthscales])
 
         # Initialise log length scales
         self.log10_lengthscales = tf.Variable(
-            tf.math.log(to_tensor(length_scales, dtype=self.dtype)),
+            tf.math.log(to_tensor(lengthscales, dtype=self.dtype)),
             dtype=float,
         )
 
@@ -139,7 +135,11 @@ class StationaryKernel(Kernel):
         return self.rbf(tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5)
 
     def make_features(
-        self, *, x: tf.Tensor, omega: tf.Tensor, rotation: tf.Tensor
+        self,
+        *,
+        x: tf.Tensor,
+        omega: tf.Tensor,
+        rotation: tf.Tensor,
     ) -> tf.Tensor:
         """Computes the features of `x`.
 
@@ -169,7 +169,7 @@ class StationaryKernel(Kernel):
         return features
 
 
-class ExponentialQuadraticKernel(StationaryKernel):
+class ExponentiatedQuadraticKernel(StationaryKernel):
 
     def rbf(self, *, r: tf.Tensor) -> tf.Tensor:
         return tf.exp(-0.5 * r**2)
