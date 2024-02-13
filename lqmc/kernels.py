@@ -135,5 +135,5 @@ class StationaryKernel(Kernel):
             tensor, shape `(..., n, m)`.
         """
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
-        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / self.lengthscales
+        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
         return self.rbf(tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5)
