@@ -29,7 +29,7 @@ class GaussianCopula(tfk.Model):
             (num_thetas,),
             seed=seed,
             mean=tf.zeros((num_thetas), dtype=self.dtype),
-            stddev=tf.ones((num_thetas), dtype=self.dtype),
+            stddev=1e-2 * tf.ones((num_thetas), dtype=self.dtype),
         )
         self.thetas = tf.Variable(thetas_init, dtype=float)
         self.bijector = tfp.bijectors.CorrelationCholesky()

@@ -7,7 +7,7 @@ import tensorflow_probability as tfp
 tfk = tf.keras
 tfd = tfp.distributions
 
-from lqmc.utils import to_tensor
+from lqmc.utils import to_tensor, cast
 from lqmc.random import Seed
 
 
@@ -23,7 +23,9 @@ class Kernel(ABC, tfk.Model):
         self.dim = dim
 
     def call(
-        self, *, x1: tf.Tensor, x2: Optional[tf.Tensor] = None
+        self,
+        x1: tf.Tensor,
+        x2: Optional[tf.Tensor] = None,
     ) -> tf.Tensor:
         """Computes the value of the kernel on the pair `x1`, `x2`.
         If `x2` is `None`, the kernel is evaluated at `x1` with itself.
@@ -38,7 +40,11 @@ class Kernel(ABC, tfk.Model):
         return self.k(x1, x2 if x2 is not None else x1)
 
     @abstractmethod
-    def k(self, *, x1: tf.Tensor, x2: tf.Tensor) -> tf.Tensor:
+    def k(
+        self,
+        x1: tf.Tensor,
+        x2: tf.Tensor,
+    ) -> tf.Tensor:
         """Computes the value of the kernel on the pair `x1`, `x2`.
 
         Arguments:
@@ -51,7 +57,11 @@ class Kernel(ABC, tfk.Model):
         pass
 
     @abstractmethod
-    def make_features(self, *, x: tf.Tensor, **kwargs) -> tf.Tensor:
+    def make_features(
+        self,
+        x: tf.Tensor,
+        **kwargs,
+    ) -> tf.Tensor:
         """Computes the features of `x`.
 
         Arguments:
@@ -63,9 +73,9 @@ class Kernel(ABC, tfk.Model):
         """
         pass
 
+    @tf.function
     def rmse_loss(
         self,
-        *,
         x1: tf.Tensor,
         x2: Optional[tf.Tensor] = None,
         **kwargs,
@@ -90,7 +100,13 @@ class Kernel(ABC, tfk.Model):
         k_approx = tf.matmul(f1, f2, transpose_b=True)
         k_true = self.k(x1=x1, x2=x2)
 
-        return tf.reduce_mean(tf.square(k_approx - k_true))
+        return (
+            tf.reduce_mean(
+                tf.reduce_mean(
+                    (k_approx - k_true[None, :, :]) ** 2.0, axis=(1, 2)
+                ) ** 0.5
+            )
+        )
 
 
 class StationaryKernel(Kernel):
@@ -107,20 +123,20 @@ class StationaryKernel(Kernel):
         assert all([l > 0 for l in lengthscales])
 
         # Initialise log length scales
-        self.log10_lengthscales = tf.Variable(
+        self.log_lengthscales = tf.Variable(
             tf.math.log(to_tensor(lengthscales, dtype=self.dtype)),
             dtype=float,
         )
 
     @property
     def lengthscales(self) -> tf.Tensor:
-        return tf.exp(self.log10_lengthscales)
+        return tf.exp(self.log_lengthscales)
 
     @abstractmethod
-    def rbf(self, *, r: tf.Tensor) -> tf.Tensor:
+    def rbf(self, r: tf.Tensor) -> tf.Tensor:
         pass
 
-    def k(self, *, x1: tf.Tensor, x2: tf.Tensor) -> tf.Tensor:
+    def k(self, x1: tf.Tensor, x2: tf.Tensor) -> tf.Tensor:
         """Computes the value of the kernel on the pair `x1`, `x2`.
 
         Arguments:
@@ -132,11 +148,11 @@ class StationaryKernel(Kernel):
         """
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
         diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
-        return self.rbf(tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5)
+        r = tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5
+        return self.rbf(r=r)
 
     def make_features(
         self,
-        *,
         x: tf.Tensor,
         omega: tf.Tensor,
         rotation: tf.Tensor,
@@ -151,10 +167,13 @@ class StationaryKernel(Kernel):
         Returns:
             phi: tensor, shape `(..., n, 2*n_features)`.
         """
-        lengthscale = tf.reshape(self.lengthscales, len(x.shape) * [1] + [-1])
-        x = tf.matmul(rotation, x / lengthscale)
+        lengthscale = tf.reshape(
+            self.lengthscales, (len(x.shape) - 1) * [1] + [-1]
+        )
+        x = x / lengthscale
+        x = tf.einsum("sij, nj -> sni", rotation, x)
 
-        inner_prod = tf.einsum("...nd,...df->...nf", x, omega)
+        inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
 
         features = tf.stack(
             [
@@ -164,16 +183,18 @@ class StationaryKernel(Kernel):
             axis=-1,
         )
 
-        features = tf.reshape(features, features.shape[:-2] + [-1])
+        s = features.shape
+        features = tf.reshape(features, (s[0], s[1], -1))
 
-        return features
+        return features / tf.sqrt(
+            cast(features.shape[-1] // 2, features.dtype)
+        )
 
 
 class ExponentiatedQuadraticKernel(StationaryKernel):
 
-    def rbf(self, *, r: tf.Tensor) -> tf.Tensor:
+    def rbf(self, r: tf.Tensor) -> tf.Tensor:
         return tf.exp(-0.5 * r**2)
 
-    @classmethod
     def rff_inverse_cdf(self, tensor: tf.Tensor) -> tf.Tensor:
         return tf.sqrt(tfd.Chi2(df=self.dim).quantile(tensor))
