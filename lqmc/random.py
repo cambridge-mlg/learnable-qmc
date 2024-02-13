@@ -88,6 +88,7 @@ def randu(
         dtype=minval.dtype,
     )
 
+
 def randperm(
     shape: tf.TensorShape,
     seed: tf.Tensor,
@@ -95,18 +96,18 @@ def randperm(
 ) -> Tuple[Seed, tf.Tensor]:
     """Generate random permutations of integers in the range `[0, maxval]`,
     uniformly distributed, and propagate a new random seed.
-    
+
     Arguments:
         shape: Shape of the output tensor.
         seed: Random seed for random number generator.
         maxval: Upper bound of the range of random permutations to generate.
         dtype: Data type of the output tensor.
-    
+
     Returns:
         seed: New random seed produced by splitting.
         rand: Random permutations of integers in the range `[0, maxval]`.
     """
-    
+
     assert maxval.dtype in [
         tf.int32,
         tf.int64,
@@ -117,7 +118,7 @@ def randperm(
         shape=shape + (maxval + 1,),
         seed=seed,
         dtype=tf.float32,
-    ) 
+    )
     return next_seed, tf.argsort(uniform, axis=-1)
 
 
@@ -306,8 +307,49 @@ def zero_mean_mvn_on_grid_from_chol(
     )
 
     for d, chol in enumerate(cov_chols):
-        noise = tf.experimental.numpy.swapaxes(noise, d+1, -1)
+        noise = tf.experimental.numpy.swapaxes(noise, d + 1, -1)
         noise = tf.einsum("bij, b...j -> b...i", chol, noise)
-        noise = tf.experimental.numpy.swapaxes(noise, d+1, -1)
+        noise = tf.experimental.numpy.swapaxes(noise, d + 1, -1)
 
     return seed, noise
+
+
+def rand_unitary(
+    seed: tf.Tensor,
+    shape: tf.TensorShape,
+    dim: int,
+    dtype: tf.DType,
+) -> tf.Tensor:
+    """Generate random unitary matrices of shape `shape` and dimension `dim`,
+    and propagate a new random seed. Works by generating random normals and
+    computing the QR decomposition, following the scipy implementation:
+
+        https://github.com/scipy/scipy/blob/v1.12.0/ \
+            scipy/stats/_multivariate.py#L3726-L3843
+    
+    Arguments:
+        seed: Random seed for random number generator.
+        shape: Shape of the output tensor.
+        dim: Dimension of the output tensor.
+        dtype: Data type of the output tensor.
+        
+    Returns:
+        seed: New random seed produced by splitting.
+        rand: Random unitary matrices of shape `shape` and dimension `dim`.
+        
+    """
+
+    # Generate random normals
+    seed, rand = randn(
+        shape=shape + (dim, dim),
+        seed=seed,
+        mean=tf.zeros((dim, dim), dtype=dtype),
+        stddev=tf.ones((dim, dim), dtype=dtype),
+    )
+
+    # Compute QR decomposition
+    q, r = tf.linalg.qr(rand)
+    d = tf.linalg.diag_part(r)
+    q = q * (d / tf.math.abs(d))[..., None, :]
+
+    return seed, q
