@@ -137,3 +137,43 @@ class StationaryKernel(Kernel):
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
         diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
         return self.rbf(tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5)
+
+    def make_features(
+        self, *, x: tf.Tensor, omega: tf.Tensor, rotation: tf.Tensor
+    ) -> tf.Tensor:
+        """Computes the features of `x`.
+
+        Arguments:
+            x: tensor, shape `(..., n, dim)`.
+            omega: tensor, shape `(..., dim, n_features)`.
+            rotation: tensor, shape `(..., dim, dim)`.
+
+        Returns:
+            phi: tensor, shape `(..., n, 2*n_features)`.
+        """
+        lengthscale = tf.reshape(self.lengthscales, len(x.shape) * [1] + [-1])
+        x = tf.matmul(rotation, x / lengthscale)
+
+        inner_prod = tf.einsum("...nd,...df->...nf", x, omega)
+
+        features = tf.stack(
+            [
+                tf.cos(inner_prod),
+                tf.sin(inner_prod),
+            ],
+            axis=-1,
+        )
+
+        features = tf.reshape(features, features.shape[:-2] + [-1])
+
+        return features
+
+
+class ExponentialQuadraticKernel(StationaryKernel):
+
+    def rbf(self, *, r: tf.Tensor) -> tf.Tensor:
+        return tf.exp(-0.5 * r**2)
+
+    @classmethod
+    def rff_inverse_cdf(self, tensor: tf.Tensor) -> tf.Tensor:
+        return tf.sqrt(tfd.Chi2(df=self.dim).quantile(tensor))
