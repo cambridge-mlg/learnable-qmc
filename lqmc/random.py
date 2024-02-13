@@ -1,5 +1,6 @@
 from typing import Tuple, Union
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from lqmc.utils import to_tensor
 
@@ -38,7 +39,7 @@ def randint(
         tf.int64,
     ], f"Invalid dtype: {minval.dtype=}"
 
-    seed, next_seed = tf.random.split(seed, num=2)
+    seed, next_seed = tfp.random.split_seed(seed, num=2)
     return next_seed, tf.random.stateless_uniform(
         shape=shape,
         seed=seed,
@@ -77,7 +78,7 @@ def randu(
         tf.float64,
     ], f"Invalid dtype: {minval.dtype=}"
 
-    seed, next_seed = tf.random.split(seed, num=2)
+    seed, next_seed = tfp.random.split_seed(seed, n=2)
 
     return next_seed, tf.random.stateless_uniform(
         shape=shape,
@@ -111,7 +112,7 @@ def randperm(
         tf.int64,
     ], f"Invalid dtype: {maxval.dtype=}"
 
-    seed, next_seed = tf.random.split(seed, num=2)
+    seed, next_seed = tfp.random.split_seed(seed, n=2)
     uniform = tf.random.stateless_uniform(
         shape=shape + (maxval + 1,),
         seed=seed,
@@ -150,7 +151,7 @@ def randn(
         tf.float64,
     ], f"Invalid dtype: {mean.dtype=}"
 
-    split = tf.random.split(seed, num=2)
+    split = tfp.random.split_seed(seed, n=2)
     seed = split[0]
     next_seed = split[1]
 
@@ -217,7 +218,7 @@ def mvn_chol(
     ], f"Invalid dtype: {mean.dtype=}"
 
     # Split seed
-    split = tf.random.split(seed, num=2)
+    split = tfp.random.split_seed(seed, n=2)
     seed = split[0]
     next_seed = split[1]
 
