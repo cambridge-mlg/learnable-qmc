@@ -14,7 +14,6 @@ class GaussianCopula(tfk.Model):
         self,
         seed: Seed,
         dim: int,
-        target_inverse_cdf: Callable,
         name="gaussian_copula",
         **kwargs,
     ):
@@ -31,7 +30,6 @@ class GaussianCopula(tfk.Model):
         )
         self.thetas = tf.Variable(thetas_init, dtype=self.dtype)
         self.bijector = tfp.bijectors.CorrelationCholesky()
-        self.target_inverse_cdf = target_inverse_cdf
 
     @property
     def cholesky(self) -> tf.Tensor:
@@ -57,6 +55,5 @@ class GaussianCopula(tfk.Model):
             loc=tf.zeros((), dtype=self.dtype),
             scale=tf.ones((), dtype=self.dtype),
         )
-        samples = self.target_inverse_cdf(norm.cdf(samples))
 
-        return seed, samples
+        return seed, norm.cdf(samples)
