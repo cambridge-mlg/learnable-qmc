@@ -17,6 +17,7 @@ def zero_mean(x: tf.Tensor) -> tf.Tensor:
 class GaussianProcess(tfk.Model):
     def __init__(
         self,
+        *,
         kernel: Kernel,
         noise_std: float,
         x: tf.Tensor,
@@ -59,7 +60,6 @@ class GaussianProcess(tfk.Model):
         )
 
         kttn_chol = tf.linalg.cholesky(kttn)
-        print(kttn_chol.shape, self.y_train.shape)
 
         # Compute posterior mean
         mean = tf.linalg.matmul(
@@ -103,3 +103,24 @@ class GaussianProcess(tfk.Model):
 
 
 class RandomFeatureGaussianProcess(GaussianProcess):
+    def __init__(
+        self,
+        *,
+        kernel: Kernel,
+        noise_std: float,
+        x: tf.Tensor,
+        y: tf.Tensor,
+        mean_function: Optional[Callable[[tf.Tensor], tf.Tensor]] = None,
+        name="random_feature_gaussian_process",
+        **kwargs,
+    ):
+
+        super().__init__(
+            kernel=kernel,
+            noise_std=noise_std,
+            x=x,
+            y=y,
+            mean_function=mean_function,
+            name=name,
+            **kwargs,
+        )
