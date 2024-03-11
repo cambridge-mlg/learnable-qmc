@@ -7,7 +7,7 @@ import tensorflow_probability as tfp
 tfk = tf.keras
 tfd = tfp.distributions
 
-from lqmc.utils import to_tensor, cast
+from lqmc.utils import to_tensor, cast, f32
 from lqmc.random import Seed
 
 
@@ -124,8 +124,7 @@ class StationaryKernel(Kernel):
 
         # Initialise log length scales
         self.log_lengthscales = tf.Variable(
-            tf.math.log(to_tensor(lengthscales, dtype=self.dtype)),
-            dtype=float,
+            tf.math.log(to_tensor(lengthscales, dtype=self.dtype,)),
         )
 
     @property
@@ -197,4 +196,5 @@ class ExponentiatedQuadraticKernel(StationaryKernel):
         return tf.exp(-0.5 * r**2)
 
     def rff_inverse_cdf(self, tensor: tf.Tensor) -> tf.Tensor:
-        return tf.sqrt(tfd.Chi2(df=self.dim).quantile(tensor))
+        df = to_tensor(self.dim, dtype=self.dtype)
+        return tf.sqrt(tfd.Chi2(df=df).quantile(tensor))

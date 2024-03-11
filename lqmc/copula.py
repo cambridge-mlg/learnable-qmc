@@ -1,9 +1,7 @@
 from typing import Callable
 
-import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-
 tfk = tf.keras
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -31,7 +29,7 @@ class GaussianCopula(tfk.Model):
             mean=tf.zeros((num_thetas), dtype=self.dtype),
             stddev=1e-2 * tf.ones((num_thetas), dtype=self.dtype),
         )
-        self.thetas = tf.Variable(thetas_init, dtype=float)
+        self.thetas = tf.Variable(thetas_init, dtype=self.dtype)
         self.bijector = tfp.bijectors.CorrelationCholesky()
         self.target_inverse_cdf = target_inverse_cdf
 
@@ -51,7 +49,7 @@ class GaussianCopula(tfk.Model):
 
         seed, samples = mvn_chol(
             seed=seed,
-            mean=tf.ones((batch_size, 2 * self.dim)),
+            mean=tf.ones((batch_size, 2 * self.dim), dtype=self.dtype),
             cov_chol=self.cholesky,
         )
 
