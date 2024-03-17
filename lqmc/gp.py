@@ -36,7 +36,7 @@ class GaussianProcess(tfk.Model):
 
         self.kernel = kernel
         self.noise_log_variance = tf.Variable(
-            to_tensor(noise_std, dtype=self.dtype) ** 2.0
+            2.0 * tf.math.log(to_tensor(noise_std, dtype=self.dtype))
         )
         self.x_train = x
         self.y_train = y

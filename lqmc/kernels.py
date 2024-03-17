@@ -115,6 +115,7 @@ class StationaryKernel(Kernel):
         self,
         dim: int,
         lengthscales: List[float],
+        output_scale: float = 1.0,
         name="eq_kernel",
         **kwargs,
     ):
@@ -128,9 +129,17 @@ class StationaryKernel(Kernel):
             tf.math.log(to_tensor(lengthscales, dtype=self.dtype,)),
         )
 
+        self.log_output_scale = tf.Variable(
+            tf.math.log(to_tensor(output_scale, dtype=self.dtype)),
+        )
+
     @property
     def lengthscales(self) -> tf.Tensor:
         return tf.exp(self.log_lengthscales)
+
+    @property
+    def output_scale(self) -> tf.Tensor:
+        return tf.exp(self.log_output_scale)
 
     @abstractmethod
     def rbf(self, r: tf.Tensor) -> tf.Tensor:
@@ -150,7 +159,7 @@ class StationaryKernel(Kernel):
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
         diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
         r = tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5
-        return self.rbf(r=r)
+        return self.output_scale ** 2. * self.rbf(r=r)
 
     def make_features(
         self,
@@ -189,7 +198,7 @@ class StationaryKernel(Kernel):
 
         return features / tf.sqrt(
             cast(features.shape[-1] // 2, features.dtype)
-        )
+        ) * self.output_scale
 
 
 class ExponentiatedQuadraticKernel(StationaryKernel):
