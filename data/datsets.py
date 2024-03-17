@@ -4,7 +4,7 @@ import tensorflow as tf
 from ucimlrepo import fetch_ucirepo
 
 from lqmc.random import Seed, randperm
-from lqmc.utils import to_tensor, f64, i32
+from lqmc.utils import to_tensor, f64
 
 
 def _shuffle_tensor_along_first_dim(
@@ -65,16 +65,17 @@ class UCIDataset:
         seed: Seed,
         split_id: int,
         num_splits: int,
+        dtype: tf.DType
     ):
 
         self.data = fetch_ucirepo(id=self.uci_id).data
         seed, self._x = _shuffle_tensor_along_first_dim(
             seed,
-            to_tensor(self.data.features, f64),
+            to_tensor(self.data.features, dtype),
         )
         seed, self._y = _shuffle_tensor_along_first_dim(
             seed,
-            to_tensor(self.data.targets, f64),
+            to_tensor(self.data.targets, dtype),
         )
 
         self.x_train, self.x_test = _split_train_test(
