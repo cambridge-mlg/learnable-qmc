@@ -2,6 +2,7 @@ from typing import Callable
 
 import tensorflow as tf
 import tensorflow_probability as tfp
+
 tfk = tf.keras
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -14,6 +15,7 @@ class GaussianCopula(tfk.Model):
         self,
         seed: Seed,
         dim: int,
+        trainable: bool,
         name="gaussian_copula",
         **kwargs,
     ):
@@ -28,7 +30,11 @@ class GaussianCopula(tfk.Model):
             mean=tf.zeros((num_thetas), dtype=self.dtype),
             stddev=1e-2 * tf.ones((num_thetas), dtype=self.dtype),
         )
-        self.thetas = tf.Variable(thetas_init, dtype=self.dtype)
+        self.thetas = tf.Variable(
+            thetas_init,
+            dtype=self.dtype,
+            trainable=trainable,
+        )
         self.bijector = tfp.bijectors.CorrelationCholesky()
 
     @property

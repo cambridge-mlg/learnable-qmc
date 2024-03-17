@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List
 
+import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -145,6 +146,7 @@ class StationaryKernel(Kernel):
         Returns:
             tensor, shape `(..., n, m)`.
         """
+        assert x1.shape[-1] == self.dim and x2.shape[-1] == self.dim
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
         diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
         r = tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5
@@ -172,7 +174,7 @@ class StationaryKernel(Kernel):
         x = x / lengthscale
         x = tf.einsum("sij, nj -> sni", rotation, x)
 
-        inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
+        inner_prod = tf.einsum("sfi, sni -> snf", omega, x) / 2**0.5
 
         features = tf.stack(
             [

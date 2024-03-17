@@ -7,7 +7,8 @@ tfk = tf.keras
 tfd = tfp.distributions
 
 from lqmc.kernels import Kernel
-from lqmc.utils import to_tensor
+from lqmc.utils import to_tensor, orthonormal_frame
+from lqmc.random import Seed, rand_unitary
 
 
 def zero_mean(x: tf.Tensor) -> tf.Tensor:
@@ -34,12 +35,16 @@ class GaussianProcess(tfk.Model):
         assert x.shape[0] == y.shape[0]
 
         self.kernel = kernel
-        self.noise_variance = tf.Variable(
+        self.noise_log_variance = tf.Variable(
             to_tensor(noise_std, dtype=self.dtype) ** 2.0
         )
         self.x_train = x
         self.y_train = y
         self.mean_function = mean_function if mean_function else zero_mean
+
+    @property
+    def noise_variance(self) -> tf.Tensor:
+        return tf.exp(self.noise_log_variance)
 
     def call(
         self,
@@ -101,26 +106,132 @@ class GaussianProcess(tfk.Model):
         return -predictive.log_prob(self.y_train)
 
 
-
 class RandomFeatureGaussianProcess(GaussianProcess):
     def __init__(
         self,
         *,
-        kernel: Kernel,
-        noise_std: float,
-        x: tf.Tensor,
-        y: tf.Tensor,
-        mean_function: Optional[Callable[[tf.Tensor], tf.Tensor]] = None,
+        joint_sampler: Callable,
         name="random_feature_gaussian_process",
         **kwargs,
     ):
 
-        super().__init__(
-            kernel=kernel,
-            noise_std=noise_std,
-            x=x,
-            y=y,
-            mean_function=mean_function,
-            name=name,
-            **kwargs,
+        super().__init__(**kwargs)
+        self.joint_sampler = joint_sampler
+
+    def call(
+        self,
+        seed: Seed,
+        x_pred: tf.Tensor,
+        num_ensembles: int,
+        noiseless: bool = False,
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
+
+        seed, omega = self.joint_sampler(seed=seed, batch_size=num_ensembles)
+        omega = self.kernel.rff_inverse_cdf(omega)
+
+        frame = orthonormal_frame(
+            dim=self.kernel.dim,
+            num_pairs=self.kernel.dim,
+            dtype=self.dtype,
         )
+
+        omega = omega[:, :, None] * frame[None, :, :]
+        seed, rotation = rand_unitary(
+            seed=seed,
+            shape=(num_ensembles,),
+            dim=self.kernel.dim,
+            dtype=self.dtype,
+        )
+
+        num_data = tf.shape(self.x_train)[0]
+        x_full = tf.concat([self.x_train, x_pred], axis=0)
+
+        features = self.kernel.make_features(
+            x=x_full,
+            omega=omega,
+            rotation=rotation,
+        )
+        features = tf.einsum("bnd -> bdn", features) / num_ensembles ** 0.5
+        features = tf.reshape(features, (-1, features.shape[-1]))
+
+        features_data = features[:, :num_data]
+        features_pred = features[:, num_data:]
+
+        iS = (
+            tf.eye(features_data.shape[0], dtype=self.dtype)
+            + tf.linalg.matmul(
+                features_data,
+                features_data,
+                transpose_b=True,
+            )
+            / self.noise_variance
+        )
+
+        # Compute predictive mean
+        mean_pred = (
+            self.noise_variance**-1
+            * tf.linalg.matmul(
+                features_pred,
+                tf.linalg.solve(iS, features_data @ self.y_train[:, None]),
+                transpose_a=True,
+            )[:, 0]
+        )
+
+        # Compute predictive covariance
+        cov_pred = tf.einsum(
+            "fi, fj -> ij",
+            features_pred,
+            tf.linalg.solve(iS, features_pred),
+        )
+        if not noiseless:
+            cov_pred += (
+                tf.eye(
+                    tf.shape(x_pred)[0],
+                    dtype=cov_pred.dtype,
+                )
+                * self.noise_variance
+            )
+
+        return mean_pred, cov_pred
+
+    @tf.function
+    def loss(self, seed: Seed, num_ensembles: int,) -> tf.Tensor:
+        
+        seed, omega = self.joint_sampler(seed=seed, batch_size=num_ensembles)
+        omega = self.kernel.rff_inverse_cdf(omega)
+
+        frame = orthonormal_frame(
+            dim=self.kernel.dim,
+            num_pairs=self.kernel.dim,
+            dtype=self.dtype,
+        )
+
+        omega = omega[:, :, None] * frame[None, :, :]
+        seed, rotation = rand_unitary(
+            seed=seed,
+            shape=(num_ensembles,),
+            dim=self.kernel.dim,
+            dtype=self.dtype,
+        )
+
+        features = self.kernel.make_features(
+            x=self.x_train,
+            omega=omega,
+            rotation=rotation,
+        )
+        features = tf.einsum("bnd -> bdn", features) / num_ensembles ** 0.5
+        features = tf.reshape(features, (-1, features.shape[-1]))
+
+        mean = self.mean_function(self.x_train)
+        diag_noise = tf.eye(
+            tf.shape(self.x_train)[0],
+            dtype=self.dtype,
+        ) * self.noise_variance
+
+        predictive = tfd.MultivariateNormalDiagPlusLowRankCovariance(
+            loc=mean,
+            cov_diag_factor=tf.linalg.diag_part(diag_noise),
+            cov_perturb_factor=tf.transpose(features, (1, 0)),
+        )
+
+        return seed, -predictive.log_prob(self.y_train)
