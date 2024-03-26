@@ -70,7 +70,11 @@ class UCIDataset:
     uci_id: int
 
     def __init__(
-        self, seed: Seed, split_id: int, num_splits: int, dtype: tf.DType
+        self,
+        seed: Seed,
+        split_id: int,
+        num_splits: int,
+        dtype: tf.DType,
     ):
 
         features, targets = self.get_raw_inputs_and_outputs()

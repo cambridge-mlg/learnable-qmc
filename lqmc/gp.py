@@ -234,4 +234,6 @@ class RandomFeatureGaussianProcess(GaussianProcess):
             cov_perturb_factor=tf.transpose(features, (1, 0)),
         )
 
-        return seed, -predictive.log_prob(self.y_train)
+        log_prob = predictive.log_prob(self.y_train)
+
+        return seed, - log_prob / self.x_train.shape[0]

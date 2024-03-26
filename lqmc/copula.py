@@ -1,5 +1,3 @@
-from typing import Callable
-
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -38,7 +36,7 @@ class GaussianCopula(tfk.Model):
 
         seed, samples = mvn_chol(
             seed=seed,
-            mean=tf.ones((batch_size, 2 * self.dim), dtype=self.dtype),
+            mean=tf.zeros((batch_size, 2 * self.dim), dtype=self.dtype),
             cov_chol=self.cholesky,
         )
 
@@ -83,25 +81,6 @@ class GaussianCopulaParametrised(GaussianCopula):
     @property
     def covariance(self) -> tf.Tensor:
         return tf.matmul(self.cholesky, self.cholesky, transpose_b=True)
-
-    def call(
-        self,
-        seed: Seed,
-        batch_size: int,
-    ) -> tf.Tensor:
-
-        seed, samples = mvn_chol(
-            seed=seed,
-            mean=tf.ones((batch_size, 2 * self.dim), dtype=self.dtype),
-            cov_chol=self.cholesky,
-        )
-
-        norm = tfd.Normal(
-            loc=tf.zeros((), dtype=self.dtype),
-            scale=tf.ones((), dtype=self.dtype),
-        )
-
-        return seed, norm.cdf(samples)
 
 
 class GaussianCopulaAntiparallelCorrelated(GaussianCopula):

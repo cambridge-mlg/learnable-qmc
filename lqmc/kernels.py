@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -8,8 +8,8 @@ import tensorflow_probability as tfp
 tfk = tf.keras
 tfd = tfp.distributions
 
-from lqmc.utils import to_tensor, cast, f32
-from lqmc.random import Seed
+from lqmc.utils import to_tensor, cast, orthonormal_frame
+from lqmc.random import Seed, rand_unitary
 
 
 class Kernel(ABC, tfk.Model):
@@ -89,7 +89,7 @@ class Kernel(ABC, tfk.Model):
             kwargs: additional keyword arguments.
 
         Returns:
-            tensor, shape `(..., n, m)`.
+            tensor, shape `(,)`.
         """
 
         x2 = x2 if x2 is not None else x1
@@ -98,16 +98,10 @@ class Kernel(ABC, tfk.Model):
         f1 = self.make_features(x=x1, **kwargs)
         f2 = self.make_features(x=x2, **kwargs)
 
-        k_approx = tf.matmul(f1, f2, transpose_b=True)
+        k_approx = tf.reduce_mean(tf.matmul(f1, f2, transpose_b=True), axis=0)
         k_true = self.k(x1=x1, x2=x2)
 
-        return (
-            tf.reduce_mean(
-                tf.reduce_mean(
-                    (k_approx - k_true[None, :, :]) ** 2.0, axis=(1, 2)
-                ) ** 0.5
-            )
-        )
+        return tf.reduce_mean((k_approx - k_true) ** 2.0) ** 0.5
 
 
 class StationaryKernel(Kernel):
@@ -126,7 +120,12 @@ class StationaryKernel(Kernel):
 
         # Initialise log length scales
         self.log_lengthscales = tf.Variable(
-            tf.math.log(to_tensor(lengthscales, dtype=self.dtype,)),
+            tf.math.log(
+                to_tensor(
+                    lengthscales,
+                    dtype=self.dtype,
+                )
+            ),
         )
 
         self.log_output_scale = tf.Variable(
@@ -159,7 +158,38 @@ class StationaryKernel(Kernel):
         lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
         diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
         r = tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5
-        return self.output_scale ** 2. * self.rbf(r=r)
+        return self.output_scale**2.0 * self.rbf(r=r)
+
+    def rmse_loss(
+        self,
+        seed: Seed,
+        omega: tf.Tensor,
+        x1: tf.Tensor,
+        x2: Optional[tf.Tensor] = None,
+        num_ensembles: int = 1,
+    ) -> Tuple[Seed, tf.Tensor]:
+
+        omega = self.rff_inverse_cdf(omega)
+        frame = orthonormal_frame(
+            dim=self.dim,
+            num_pairs=self.dim,
+            dtype=self.dtype,
+        )
+
+        omega = omega[:, :, None] * frame[None, :, :]
+        seed, rotation = rand_unitary(
+            seed=seed,
+            shape=(num_ensembles,),
+            dim=self.dim,
+            dtype=self.dtype,
+        )
+
+        return seed, super().rmse_loss(
+            x1,
+            x2,
+            omega=omega,
+            rotation=rotation,
+        )
 
     def make_features(
         self,
@@ -196,9 +226,11 @@ class StationaryKernel(Kernel):
         s = features.shape
         features = tf.reshape(features, (s[0], s[1], -1))
 
-        return features / tf.sqrt(
-            cast(features.shape[-1] // 2, features.dtype)
-        ) * self.output_scale
+        return (
+            features
+            / tf.sqrt(cast(features.shape[-1] // 2, features.dtype))
+            * self.output_scale
+        )
 
 
 class ExponentiatedQuadraticKernel(StationaryKernel):
