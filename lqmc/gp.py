@@ -35,7 +35,7 @@ class GaussianProcess(tfk.Model):
         assert x.shape[0] == y.shape[0]
 
         self.kernel = kernel
-        self.noise_log_variance = tf.Variable(
+        self.noise_log_std = tf.Variable(
             2.0 * tf.math.log(to_tensor(noise_std, dtype=self.dtype))
         )
         self.x_train = x
@@ -43,8 +43,8 @@ class GaussianProcess(tfk.Model):
         self.mean_function = mean_function if mean_function else zero_mean
 
     @property
-    def noise_variance(self) -> tf.Tensor:
-        return tf.exp(self.noise_log_variance)
+    def noise_std(self) -> tf.Tensor:
+        return tf.exp(self.noise_log_std)
 
     def call(
         self,
@@ -61,7 +61,7 @@ class GaussianProcess(tfk.Model):
                 tf.shape(self.x_train)[0],
                 dtype=ktt.dtype,
             )
-            * self.noise_variance
+            * self.noise_std**2.
         )
 
         kttn_chol = tf.linalg.cholesky(kttn)
@@ -80,7 +80,7 @@ class GaussianProcess(tfk.Model):
             transpose_a=True,
         )
         if not noiseless:
-            cov += self.noise_variance * tf.eye(
+            cov += self.noise_std ** 2. * tf.eye(
                 tf.shape(x_pred)[0],
                 dtype=cov.dtype,
             )
@@ -96,7 +96,7 @@ class GaussianProcess(tfk.Model):
         predictive = tfd.MultivariateNormalFullCovariance(
             loc=mean,
             covariance_matrix=cov
-            + self.noise_variance
+            + self.noise_std ** 2.
             * tf.eye(
                 tf.shape(self.x_train)[0],
                 dtype=cov.dtype,
@@ -164,12 +164,12 @@ class RandomFeatureGaussianProcess(GaussianProcess):
                 features_data,
                 transpose_b=True,
             )
-            / self.noise_variance
+            / self.noise_std ** 2.
         )
 
         # Compute predictive mean
         mean_pred = (
-            self.noise_variance**-1
+            self.noise_std**-2.
             * tf.linalg.matmul(
                 features_pred,
                 tf.linalg.solve(iS, features_data @ self.y_train[:, None]),
@@ -189,10 +189,10 @@ class RandomFeatureGaussianProcess(GaussianProcess):
                     tf.shape(x_pred)[0],
                     dtype=cov_pred.dtype,
                 )
-                * self.noise_variance
+                * self.noise_std ** 2.
             )
 
-        return mean_pred, cov_pred
+        return seed, mean_pred, cov_pred
 
     @tf.function
     def loss(self, seed: Seed, num_ensembles: int,) -> tf.Tensor:
@@ -226,7 +226,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
         diag_noise = tf.eye(
             tf.shape(self.x_train)[0],
             dtype=self.dtype,
-        ) * self.noise_variance
+        ) * self.noise_std ** 2.
 
         predictive = tfd.MultivariateNormalDiagPlusLowRankCovariance(
             loc=mean,

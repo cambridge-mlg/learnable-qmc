@@ -213,7 +213,7 @@ class StationaryKernel(Kernel):
         x = x / lengthscale
         x = tf.einsum("sij, nj -> sni", rotation, x)
 
-        inner_prod = tf.einsum("sfi, sni -> snf", omega, x) / 2**0.5
+        inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
 
         features = tf.stack(
             [

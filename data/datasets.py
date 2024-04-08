@@ -78,14 +78,13 @@ class UCIDataset:
     ):
 
         features, targets = self.get_raw_inputs_and_outputs()
-        seed, self._x = _shuffle_tensor_along_first_dim(
-            seed,
-            to_tensor(features, dtype),
-        )
-        seed, self._y = _shuffle_tensor_along_first_dim(
-            seed,
-            to_tensor(targets, dtype),
-        )
+        features = to_tensor(features, dtype=dtype)
+        targets = to_tensor(targets, dtype=dtype)
+
+        seed, idx = randperm(seed=seed, shape=(), maxval=tf.shape(features)[0] - 1)
+
+        self._x = tf.gather(features, idx, axis=0)
+        self._y = tf.gather(targets, idx, axis=0)
 
         self.x_train, self.x_test = _split_train_test(
             self._x,
@@ -117,6 +116,11 @@ class UCIDataset:
     def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
         data = fetch_ucirepo(id=self.uci_id).data
         return data.features, data.targets
+
+
+    @property
+    def dim(self) -> int:
+        return self.x_train.shape[-1]
 
 
 class UCICSVDataset(UCIDataset):
@@ -153,14 +157,29 @@ class ConcreteCompressiveStrength(UCIDataset):
     name: str = "concrete"
 
 
-class WineRed(UCIDataset):
+class WineQuality(UCIDataset):
     uci_id: int = 186
-    name: str = "wine"
+    name: str = "wine-quality"
 
     def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
         data = fetch_ucirepo(id=self.uci_id).data
         is_red = data["original"]["color"] == "red"
         return data.features[is_red], data.targets[is_red]
+    
+
+class Wine(UCIDataset):
+    uci_id: int = 109
+    name: str = "wine"
+
+
+class Abalone(UCIDataset):
+    uci_id: int = 1
+    name: str = "abalone"
+
+
+class CPU(UCIDataset):
+    uci_id: int = 29
+    name: str = "cpu"
 
 
 class PowerPlant(UCIDataset):
