@@ -20,7 +20,7 @@ for dataset in DATASETS.keys():
                 "--split-id",
                 str(split_id),
                 "--max-datapoints",
-                "512",
+                "1024",
                 "--lengthscale",
                 "1.0",
                 "--output-scale",
