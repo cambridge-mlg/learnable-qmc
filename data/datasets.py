@@ -74,7 +74,7 @@ class UCIDataset:
         seed, idx = randperm(seed=seed, shape=(), maxval=tf.shape(features)[0] - 1)
 
         self._x = tf.gather(features, idx, axis=0)
-        self._y = tf.gather(targets, idx, axis=0)
+        self._y = tf.gather(targets, idx, axis=0)[:, 0]
 
         self.x_train, self.x_test = _split_train_test(
             self._x,
@@ -262,13 +262,17 @@ DATASETS = {
 
 
 def make_dataset(
-    dataset: str,
+    name: str,
     seed: Seed,
     split_id: int,
     num_splits: int,
+    dtype: tf.DType,
+    max_datapoints: Optional[int] = None,
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
-    return DATASETS[dataset](
+    return DATASETS[name](
         seed=seed,
         split_id=split_id,
         num_splits=num_splits,
+        dtype=dtype,
+        max_datapoints=max_datapoints,
     )

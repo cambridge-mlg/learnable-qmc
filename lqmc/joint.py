@@ -8,9 +8,10 @@ tfb = tfp.bijectors
 from lqmc.random import Seed, randn, randu, mvn_chol, rand_halton
 
 
-class IndependentUniform:
+class IndependentUniform(tfk.Model):
     def __init__(self, dim: int, name: str = "independent_uniform", **kwargs):
         self.dim = dim
+        super().__init__(name=name, **kwargs)
 
     def __call__(self, seed: Seed, batch_size: int) -> tf.Tensor:
         return randu(
@@ -18,12 +19,14 @@ class IndependentUniform:
             shape=(batch_size,),
             minval=tf.zeros((2 * self.dim), dtype=self.dtype),
             maxval=tf.ones((2 * self.dim), dtype=self.dtype),
+            dtype=self.dtype,
         )
 
 
-class HaltonSequence:
+class HaltonSequence(tfk.Model):
     def __init__(self, dim: int, name: str = "halton_sequence", **kwargs):
         self.dim = dim
+        super().__init__(name=name, **kwargs)
 
     def __call__(self, seed: Seed, batch_size: int) -> tf.Tensor:
         return rand_halton(

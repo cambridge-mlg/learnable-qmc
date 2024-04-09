@@ -107,15 +107,12 @@ class StationaryKernel(Kernel):
     def __init__(
         self,
         dim: int,
-        lengthscales: Union[float, List[float]],
+        lengthscales: List[float],
         output_scale: float = 1.0,
         name: str = "eq_kernel",
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
-
-        if isinstance(lengthscales, float):
-            lengthscales = [lengthscales] * dim
 
         # Check length scales are positive
         assert all([l > 0 for l in lengthscales])
@@ -157,10 +154,10 @@ class StationaryKernel(Kernel):
             tensor, shape `(..., n, m)`.
         """
         assert x1.shape[-1] == self.dim and x2.shape[-1] == self.dim
-        lengthscale = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
-        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / lengthscale
-        r = tf.reduce_sum(tf.square(diff), axis=-1) ** 0.5
-        return self.output_scale**2.0 * self.rbf(r=r)
+        lengthscales = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
+        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / (lengthscales + 1e-6)
+        r2 = tf.reduce_sum(diff ** 2., axis=-1)
+        return self.output_scale**2. * self.rbf(r2=r2)
 
     def rmse_loss(
         self,
@@ -237,8 +234,8 @@ class StationaryKernel(Kernel):
 
 class ExponentiatedQuadraticKernel(StationaryKernel):
 
-    def rbf(self, r: tf.Tensor) -> tf.Tensor:
-        return tf.exp(-0.5 * r**2)
+    def rbf(self, r2: tf.Tensor) -> tf.Tensor:
+        return tf.exp(-0.5 * r2)
 
     def rff_inverse_cdf(self, tensor: tf.Tensor) -> tf.Tensor:
         df = to_tensor(self.dim, dtype=self.dtype)

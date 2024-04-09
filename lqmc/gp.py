@@ -36,7 +36,7 @@ class GaussianProcess(tfk.Model):
 
         self.kernel = kernel
         self.noise_log_std = tf.Variable(
-            2.0 * tf.math.log(to_tensor(noise_std, dtype=self.dtype))
+            tf.math.log(to_tensor(noise_std, dtype=self.dtype))
         )
         self.x_train = x
         self.y_train = y
@@ -61,7 +61,7 @@ class GaussianProcess(tfk.Model):
                 tf.shape(self.x_train)[0],
                 dtype=ktt.dtype,
             )
-            * self.noise_std**2.
+            * self.noise_std**2.0
         )
 
         kttn_chol = tf.linalg.cholesky(kttn)
@@ -80,7 +80,7 @@ class GaussianProcess(tfk.Model):
             transpose_a=True,
         )
         if not noiseless:
-            cov += self.noise_std ** 2. * tf.eye(
+            cov += self.noise_std**2.0 * tf.eye(
                 tf.shape(x_pred)[0],
                 dtype=cov.dtype,
             )
@@ -92,18 +92,19 @@ class GaussianProcess(tfk.Model):
         mean = self.mean_function(self.x_train)
         cov = self.kernel(self.x_train, self.x_train)
 
-        # Compute negative log marginal likelihood
-        predictive = tfd.MultivariateNormalFullCovariance(
-            loc=mean,
-            covariance_matrix=cov
-            + self.noise_std ** 2.
+        scale_tril = tf.linalg.cholesky(
+            cov
+            + self.noise_std**2.0
             * tf.eye(
                 tf.shape(self.x_train)[0],
                 dtype=cov.dtype,
-            ),
+            )
         )
 
-        return -predictive.log_prob(self.y_train)
+        # Compute negative log marginal likelihood
+        predictive = tfd.MultivariateNormalTriL(loc=mean, scale_tril=scale_tril)
+
+        return -predictive.log_prob(self.y_train) / self.x_train.shape[0]
 
 
 class RandomFeatureGaussianProcess(GaussianProcess):
@@ -115,7 +116,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
         **kwargs,
     ):
 
-        super().__init__(**kwargs)
+        super().__init__(name=name, **kwargs)
         self.joint_sampler = joint_sampler
 
     def call(
@@ -151,7 +152,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
             omega=omega,
             rotation=rotation,
         )
-        features = tf.einsum("bnd -> bdn", features) / num_ensembles ** 0.5
+        features = tf.einsum("bnd -> bdn", features) / num_ensembles**0.5
         features = tf.reshape(features, (-1, features.shape[-1]))
 
         features_data = features[:, :num_data]
@@ -164,12 +165,12 @@ class RandomFeatureGaussianProcess(GaussianProcess):
                 features_data,
                 transpose_b=True,
             )
-            / self.noise_std ** 2.
+            / self.noise_std**2.0
         )
 
         # Compute predictive mean
         mean_pred = (
-            self.noise_std**-2.
+            self.noise_std**-2.0
             * tf.linalg.matmul(
                 features_pred,
                 tf.linalg.solve(iS, features_data @ self.y_train[:, None]),
@@ -189,14 +190,18 @@ class RandomFeatureGaussianProcess(GaussianProcess):
                     tf.shape(x_pred)[0],
                     dtype=cov_pred.dtype,
                 )
-                * self.noise_std ** 2.
+                * self.noise_std**2.0
             )
 
         return seed, mean_pred, cov_pred
 
     @tf.function
-    def loss(self, seed: Seed, num_ensembles: int,) -> tf.Tensor:
-        
+    def loss(
+        self,
+        seed: Seed,
+        num_ensembles: int,
+    ) -> tf.Tensor:
+
         seed, omega = self.joint_sampler(seed=seed, batch_size=num_ensembles)
         omega = self.kernel.rff_inverse_cdf(omega)
 
@@ -219,14 +224,17 @@ class RandomFeatureGaussianProcess(GaussianProcess):
             omega=omega,
             rotation=rotation,
         )
-        features = tf.einsum("bnd -> bdn", features) / num_ensembles ** 0.5
+        features = tf.einsum("bnd -> bdn", features) / num_ensembles**0.5
         features = tf.reshape(features, (-1, features.shape[-1]))
 
         mean = self.mean_function(self.x_train)
-        diag_noise = tf.eye(
-            tf.shape(self.x_train)[0],
-            dtype=self.dtype,
-        ) * self.noise_std ** 2.
+        diag_noise = (
+            tf.eye(
+                tf.shape(self.x_train)[0],
+                dtype=self.dtype,
+            )
+            * self.noise_std**2.0
+        )
 
         predictive = tfd.MultivariateNormalDiagPlusLowRankCovariance(
             loc=mean,
@@ -236,4 +244,4 @@ class RandomFeatureGaussianProcess(GaussianProcess):
 
         log_prob = predictive.log_prob(self.y_train)
 
-        return seed, - log_prob / self.x_train.shape[0]
+        return seed, -log_prob / self.x_train.shape[0]
