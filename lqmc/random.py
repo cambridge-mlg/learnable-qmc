@@ -353,3 +353,50 @@ def rand_unitary(
     q = q * (d / tf.math.abs(d))[..., None, :]
 
     return seed, q
+
+
+def rand_halton(
+    seed: tf.Tensor,
+    num_samples: int,
+    shape: tf.TensorShape,
+    dim: int,
+    dtype: tf.DType,
+) -> tf.Tensor:
+    """
+    Generate samples from a Halton sequence of dimension `dim`, translated
+    by a random shift (modulo 1) and propagate a new random seed.
+
+    Arguments:
+        seed: Random seed for random number generator.
+        num_samples: Number of samples to generate.
+        shape: Shape of the output tensor.
+        dim: Dimension of the output tensor.
+        dtype: Data type of the output tensor.
+
+    Returns:
+        seed: New random seed produced by splitting.
+        rand: Halton samples of shape `shape` and dimension `dim`.
+    """
+
+    # Generate Halton sequence: same for all sequences in a given batch
+    halton = tfp.mcmc.sample_halton_sequence(
+        dim=dim,
+        num_results=num_samples,
+        randomized=False,
+        dtype=dtype,
+    )
+
+    # Add sufficient leading dimensions to the Halton sequence samples
+    # to match the shape of the output tensor
+    halton = tf.reshape(halton, (1,) * len(shape) + (num_samples, dim))
+
+    # Generate random shift: same for all samples of a given sequence,
+    # but different for each sequence
+    seed, shift = randu(
+        shape=shape + (1, dim,),
+        seed=seed,
+        minval=tf.zeros((), dtype=dtype),
+        maxval=tf.ones((), dtype=dtype),
+    )
+
+    return seed, (halton + shift) % 1.0
