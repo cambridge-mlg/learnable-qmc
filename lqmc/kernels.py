@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 
-import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -108,12 +107,15 @@ class StationaryKernel(Kernel):
     def __init__(
         self,
         dim: int,
-        lengthscales: List[float],
+        lengthscales: Union[float, List[float]],
         output_scale: float = 1.0,
-        name="eq_kernel",
+        name: str = "eq_kernel",
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
+
+        if isinstance(lengthscales, float):
+            lengthscales = [lengthscales] * dim
 
         # Check length scales are positive
         assert all([l > 0 for l in lengthscales])
