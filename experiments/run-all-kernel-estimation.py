@@ -36,7 +36,7 @@ for dataset in DATASETS.keys():
                 "--learning-rate",
                 "0.01",
                 "--num-trials",
-                "100",
+                "1000",
                 "--sampler-learning-rate",
                 "0.001",
                 "--sampler-num-steps",

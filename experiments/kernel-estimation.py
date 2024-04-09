@@ -217,7 +217,7 @@ def main():
                 x1=dataset.x_train,
                 num_ensembles=args.num_ensembles,
             )
-            mse_losses.append(rmse_loss)
+            mse_losses.append(rmse_loss ** 0.5)
 
         # Print mean and stderr of MSE losses
         mse_losses = tf.stack(mse_losses)

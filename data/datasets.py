@@ -88,14 +88,6 @@ class UCIDataset:
             num_splits=num_splits,
         )
 
-        if max_datapoints is not None and self.x_train.shape[0] > max_datapoints:
-            self.x_train = self.x_train[:max_datapoints]
-            self.y_train = self.y_train[:max_datapoints]
-
-        if max_datapoints is not None and self.x_test.shape[0] > max_datapoints:
-            self.x_test = self.x_test[:max_datapoints]
-            self.y_test = self.y_test[:max_datapoints]
-
         self.x_train, self.x_mean, self.x_std = _normalise(self.x_train)
         self.y_train, self.y_mean, self.y_std = _normalise(self.y_train)
 
@@ -110,6 +102,14 @@ class UCIDataset:
             mean=self.y_mean,
             stddev=self.y_std,
         )
+
+        if max_datapoints is not None and self.x_train.shape[0] > max_datapoints:
+            self.x_train = self.x_train[:max_datapoints]
+            self.y_train = self.y_train[:max_datapoints]
+
+        if max_datapoints is not None and self.x_test.shape[0] > max_datapoints:
+            self.x_test = self.x_test[:max_datapoints]
+            self.y_test = self.y_test[:max_datapoints]
 
     def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
         data = fetch_ucirepo(id=self.uci_id).data
