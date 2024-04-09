@@ -10,15 +10,10 @@ from lqmc.random import Seed, randperm
 from lqmc.utils import to_tensor, f64
 
 
-def _shuffle_tensor_along_first_dim(
-    seed: Seed, tensor: tf.Tensor
-) -> tf.Tensor:
-    seed, idx = randperm(seed=seed, shape=(), maxval=tf.shape(tensor)[0] - 1)
-    return seed, tf.gather(tensor, idx, axis=0)
-
-
 def _split_train_test(
-    tensor: tf.Tensor, split_id: int, num_splits: int
+    tensor: tf.Tensor,
+    split_id: int,
+    num_splits: int,
 ) -> Tuple[tf.Tensor, tf.Tensor]:
     # Compute total size of tensor and the size of each split
     total_size = tf.shape(tensor)[0]
@@ -29,9 +24,7 @@ def _split_train_test(
     test_end_idx = test_start_idx + split_size
 
     # Create the train split and then the test split
-    train_split = tf.concat(
-        [tensor[:test_start_idx], tensor[test_end_idx:]], axis=0
-    )
+    train_split = tf.concat([tensor[:test_start_idx], tensor[test_end_idx:]], axis=0)
     test_split = tensor[test_start_idx:test_end_idx]
 
     return train_split, test_split
@@ -43,13 +36,9 @@ def _normalise(
     stddev: Optional[tf.Tensor] = None,
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 
-    mean = (
-        tf.reduce_mean(tensor, axis=0, keepdims=True) if mean is None else mean
-    )
+    mean = tf.reduce_mean(tensor, axis=0, keepdims=True) if mean is None else mean
     std = (
-        tf.math.reduce_std(tensor, axis=0, keepdims=True)
-        if stddev is None
-        else stddev
+        tf.math.reduce_std(tensor, axis=0, keepdims=True) if stddev is None else stddev
     )
     normalised_tensor = (tensor - mean) / std
 
@@ -74,7 +63,8 @@ class UCIDataset:
         seed: Seed,
         split_id: int,
         num_splits: int,
-        dtype: tf.DType,
+        max_datapoints: Optional[int] = None,
+        dtype: tf.DType = f64,
     ):
 
         features, targets = self.get_raw_inputs_and_outputs()
@@ -98,6 +88,14 @@ class UCIDataset:
             num_splits=num_splits,
         )
 
+        if max_datapoints is not None and self.x_train.shape[0] > max_datapoints:
+            self.x_train = self.x_train[:max_datapoints]
+            self.y_train = self.y_train[:max_datapoints]
+
+        if max_datapoints is not None and self.x_test.shape[0] > max_datapoints:
+            self.x_test = self.x_test[:max_datapoints]
+            self.y_test = self.y_test[:max_datapoints]
+
         self.x_train, self.x_mean, self.x_std = _normalise(self.x_train)
         self.y_train, self.y_mean, self.y_std = _normalise(self.y_train)
 
@@ -116,7 +114,6 @@ class UCIDataset:
     def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
         data = fetch_ucirepo(id=self.uci_id).data
         return data.features, data.targets
-
 
     @property
     def dim(self) -> int:
@@ -139,9 +136,7 @@ class UCICSVDataset(UCIDataset):
             os.makedirs("_data/zip", exist_ok=True)
 
         if not os.path.exists(f"_data/zip/{self.name}"):
-            file = wget.download(
-                self.url_to_tar, out=f"_data/zip/{self.name}.zip"
-            )
+            file = wget.download(self.url_to_tar, out=f"_data/zip/{self.name}.zip")
 
         if not os.path.exists(f"_data/{self.name}"):
             os.system(f"unzip _data/zip/{self.name}.zip -d _data/{self.name}")
@@ -165,7 +160,7 @@ class WineQuality(UCIDataset):
         data = fetch_ucirepo(id=self.uci_id).data
         is_red = data["original"]["color"] == "red"
         return data.features[is_red], data.targets[is_red]
-    
+
 
 class Wine(UCIDataset):
     uci_id: int = 109
@@ -250,3 +245,30 @@ class BostonHousing(UCIDataset):
             sep="\s+",
         )
         return df.iloc[:, :-1].values, df.iloc[:, -1:].values
+
+
+DATASETS = {
+    "concrete": ConcreteCompressiveStrength,
+    "wine-quality": WineQuality,
+    "wine": Wine,
+    "abalone": Abalone,
+    "cpu": CPU,
+    "power": PowerPlant,
+    "superconductivity": Superconductivity,
+    "yacht": Yacht,
+    "airfoil": Airfoil,
+    "boston": BostonHousing,
+}
+
+
+def make_dataset(
+    dataset: str,
+    seed: Seed,
+    split_id: int,
+    num_splits: int,
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    return DATASETS[dataset](
+        seed=seed,
+        split_id=split_id,
+        num_splits=num_splits,
+    )
