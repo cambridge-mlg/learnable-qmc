@@ -1,0 +1,21 @@
+dataset:
+  _target_: data.datasets.make_dataset
+  seed: [0, 0]
+  split_id: 0
+  num_splits: 5
+  max_datapoints: 512
+
+exact_gp_kwargs:
+  _target_: lqmc.gp.GaussianProcess
+  noise_std: 1e-1
+  x: ${dataset.x_train}
+  y: ${dataset.y_train}
+
+kernel_kwargs:
+  _target_: lqmc.kernels.ExponentiatedQuadraticKernel
+  dim: ${dataset.dim}
+  lenghtscales: 1.
+  output_scale: 1.
+
+misc:
+  results_path: _results
