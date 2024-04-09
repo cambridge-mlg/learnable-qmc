@@ -73,7 +73,6 @@ class Kernel(ABC, tfk.Model):
         """
         pass
 
-    @tf.function
     def rmse_loss(
         self,
         x1: tf.Tensor,
@@ -92,7 +91,6 @@ class Kernel(ABC, tfk.Model):
         """
 
         x2 = x2 if x2 is not None else x1
-        assert x1.shape[:-2] == x2.shape[:-2] and x1.shape[-1] == x2.shape[-1]
 
         f1 = self.make_features(x=x1, **kwargs)
         f2 = self.make_features(x=x2, **kwargs)
@@ -159,6 +157,7 @@ class StationaryKernel(Kernel):
         r2 = tf.reduce_sum(diff ** 2., axis=-1)
         return self.output_scale**2. * self.rbf(r2=r2)
 
+    @tf.function
     def rmse_loss(
         self,
         seed: Seed,

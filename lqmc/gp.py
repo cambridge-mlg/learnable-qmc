@@ -106,6 +106,12 @@ class GaussianProcess(tfk.Model):
 
         return -predictive.log_prob(self.y_train) / self.x_train.shape[0]
 
+    def pred_nll(self, x_pred: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        mean, cov = self(x_pred, noiseless=False)
+        predictive = tfd.MultivariateNormalTriL(loc=mean, scale_tril=tf.linalg.cholesky(cov))
+
+        return -predictive.log_prob(y_pred) / x_pred.shape[0]
+    
 
 class RandomFeatureGaussianProcess(GaussianProcess):
     def __init__(

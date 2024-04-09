@@ -393,7 +393,7 @@ def rand_halton(
     # Generate random shift: same for all samples of a given sequence,
     # but different for each sequence
     seed, shift = randu(
-        shape=shape + (1, dim,),
+        shape=shape + (1, dim),
         seed=seed,
         minval=tf.zeros((), dtype=dtype),
         maxval=tf.ones((), dtype=dtype),

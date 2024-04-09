@@ -2,7 +2,7 @@ from subprocess import call
 from data.datasets import DATASETS
 
 
-num_splits = 5
+num_splits = 10
 
 for dataset in DATASETS.keys():
     for split_id in range(num_splits):

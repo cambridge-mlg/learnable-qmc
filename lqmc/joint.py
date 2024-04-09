@@ -16,10 +16,9 @@ class IndependentUniform(tfk.Model):
     def __call__(self, seed: Seed, batch_size: int) -> tf.Tensor:
         return randu(
             seed=seed,
-            shape=(batch_size,),
-            minval=tf.zeros((2 * self.dim), dtype=self.dtype),
-            maxval=tf.ones((2 * self.dim), dtype=self.dtype),
-            dtype=self.dtype,
+            shape=(batch_size, 2 * self.dim),
+            minval=tf.zeros((), dtype=self.dtype),
+            maxval=tf.ones((), dtype=self.dtype),
         )
 
 
@@ -29,13 +28,14 @@ class HaltonSequence(tfk.Model):
         super().__init__(name=name, **kwargs)
 
     def __call__(self, seed: Seed, batch_size: int) -> tf.Tensor:
-        return rand_halton(
+        seed, omega = rand_halton(
             seed=seed,
+            shape=(batch_size,),
             num_samples=2 * self.dim,
-            dim=self.dim,
-            batch_size=batch_size,
+            dim=1,
             dtype=self.dtype,
         )
+        return seed, omega[..., 0]
 
 
 class GaussianCopula(tfk.Model):
@@ -83,7 +83,7 @@ class GaussianCopulaParametrised(GaussianCopula):
         self,
         seed: Seed,
         dim: int,
-        trainable: bool,
+        trainable: bool = True,
         name="gaussian_copula_parameterised",
         **kwargs,
     ):
