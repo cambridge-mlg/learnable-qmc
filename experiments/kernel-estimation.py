@@ -83,16 +83,8 @@ def joint_sampler_gradient_step(
 
     with tf.GradientTape() as tape:
 
-        seed, omega = joint_sampler(
-            seed=seed,
-            batch_size=num_ensembles,
-        )
-        seed, loss = kernel.rmse_loss(
-            seed=seed,
-            omega=omega,
-            x1=x,
-            num_ensembles=num_ensembles,
-        )
+        seed, omega = joint_sampler(seed=seed, batch_size=num_ensembles)
+        seed, loss = kernel.rmse_loss(seed=seed, omega=omega, x1=x)
 
     gradients = tape.gradient(loss, joint_sampler.trainable_variables)
     optimizer.apply_gradients(zip(gradients, joint_sampler.trainable_variables))
@@ -144,11 +136,20 @@ def main():
     joint_samplers = {
         "iid": IndependentUniform(dim=dataset.dim, dtype=DTYPE),
         "halton": HaltonSequence(dim=dataset.dim, dtype=DTYPE),
-        "ortho": GaussianCopulaAntiparallelUncorrelated(dim=dataset.dim, dtype=DTYPE),
-        "anti": GaussianCopulaAntiparallelAnticorrelated(dim=dataset.dim, dtype=DTYPE),
+        "ortho": GaussianCopulaAntiparallelUncorrelated(
+            dim=dataset.dim,
+            inverse_cdf=kernel.rff_inverse_cdf,
+            dtype=DTYPE,
+        ),
+        "anti": GaussianCopulaAntiparallelAnticorrelated(
+            dim=dataset.dim,
+            inverse_cdf=kernel.rff_inverse_cdf,
+            dtype=DTYPE,
+        ),
         "learnt": GaussianCopulaParametrised(
             seed=copula_seed,
             dim=dataset.dim,
+            inverse_cdf=kernel.rff_inverse_cdf,
             dtype=DTYPE,
         ),
     }
@@ -189,7 +190,7 @@ def main():
 
     # Re-create optimizer
     optimizer = tf.keras.optimizers.Adam(learning_rate=args.sampler_learning_rate)
-    
+
     # Train learnt joint sampler
     pbar = trange(args.sampler_num_steps)
     seed = [args.seed_training, args.seed_training]
@@ -204,34 +205,39 @@ def main():
             seed=seed,
         )
         sampler_losses.append(loss)
-        pbar.set_description(f"Learnt sampler loss: {tf.reduce_mean(sampler_losses).numpy():.4f}")
+        pbar.set_description(
+            f"Learnt sampler loss: {tf.reduce_mean(sampler_losses).numpy():.4f}"
+        )
 
     # Loop over joints
     for name, joint in joint_samplers.items():
         mse_losses = []
         for _ in trange(args.num_trials):
-            seed, omega = joint(seed, args.num_ensembles)
+            seed, omega = joint(seed, batch_size=args.num_ensembles)
+            apply_rotation = name != "halton"
             seed, rmse_loss = kernel.rmse_loss(
                 seed=seed,
                 omega=omega,
                 x1=dataset.x_train,
-                num_ensembles=args.num_ensembles,
+                apply_rotation=apply_rotation,
             )
-            mse_losses.append(rmse_loss ** 0.5)
+            mse_losses.append(rmse_loss**2.)
 
         # Print mean and stderr of MSE losses
         mse_losses = tf.stack(mse_losses)
         mean_mse_loss = tf.reduce_mean(mse_losses)
         stderr_mse_loss = tf.math.reduce_std(mse_losses) / args.num_trials**0.5
 
-        print(f"\n{name} MSE loss: {mean_mse_loss.numpy()} +/- {stderr_mse_loss.numpy()}\n")
+        print(
+            f"\n{name} MSE loss: {mean_mse_loss.numpy()} +/- {stderr_mse_loss.numpy()}\n"
+        )
 
         # Save mean and stderr of MSE losses into a text file
         with open(os.path.join(results_path, f"joint-metrics"), "a") as file:
             file.write(
                 f"{name} MSE: {mean_mse_loss.numpy()} +/- {stderr_mse_loss.numpy()}\n"
             )
-        
+
         # Save learnt sampler covariance as numpy and imshow
         if name == "learnt":
             cov = joint.covariance.numpy()
