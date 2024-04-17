@@ -73,7 +73,7 @@ class GaussianCopula(JointDistribution):
 
     @property
     def cholesky(self) -> tf.Tensor:
-        return self.bijector(self.thetas)
+        raise NotImplementedError
 
     @property
     def covariance(self) -> tf.Tensor:
@@ -134,10 +134,6 @@ class GaussianCopulaParametrised(GaussianCopula):
     @property
     def cholesky(self) -> tf.Tensor:
         return self.bijector(self.thetas)
-
-    @property
-    def covariance(self) -> tf.Tensor:
-        return tf.matmul(self.cholesky, self.cholesky, transpose_b=True)
 
 
 class GaussianCopulaAntiparallelCoupled(GaussianCopula):

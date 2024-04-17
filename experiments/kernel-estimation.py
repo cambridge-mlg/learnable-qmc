@@ -214,7 +214,7 @@ def main():
         mse_losses = []
         for _ in trange(args.num_trials):
             seed, omega = joint(seed, batch_size=args.num_ensembles)
-            apply_rotation = name != "halton"
+            apply_rotation = name not in ["iid", "halton"]
             seed, rmse_loss = kernel.rmse_loss(
                 seed=seed,
                 omega=omega,

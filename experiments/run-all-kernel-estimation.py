@@ -4,9 +4,11 @@ from data.datasets import DATASETS
 
 num_splits = 5
 
-for dataset in DATASETS.keys():
+for dataset, dataset_class in DATASETS.items():
     for split_id in range(num_splits):
-
+        print(200*"=")
+        print(dataset_class.name)
+        print(200*"=")
         call(
             [
                 "python",
@@ -20,7 +22,7 @@ for dataset in DATASETS.keys():
                 "--split-id",
                 str(split_id),
                 "--max-datapoints",
-                "128",
+                "256",
                 "--lengthscale",
                 "1.0",
                 "--output-scale",
@@ -32,14 +34,14 @@ for dataset in DATASETS.keys():
                 "--seed-training",
                 str(split_id),
                 "--num-steps",
-                "5000",
+                "500",
                 "--learning-rate",
                 "0.01",
                 "--num-trials",
-                "1000",
+                "100",
                 "--sampler-learning-rate",
                 "0.001",
                 "--sampler-num-steps",
-                "1000",
+                "100",
             ]
         )

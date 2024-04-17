@@ -7,7 +7,7 @@ import tensorflow_probability as tfp
 tfk = tf.keras
 tfd = tfp.distributions
 
-from lqmc.utils import to_tensor, cast, orthonormal_frame
+from lqmc.utils import to_tensor, cast
 from lqmc.random import Seed, rand_unitary
 
 
@@ -86,6 +86,7 @@ class Kernel(ABC, tfk.Model):
         Arguments:
             x1: tensor, shape `(..., n, dim)`.
             x2: tensor, shape `(..., m, dim)`.
+            omega: tensor, shape `(batch_size, 2 * dim, dim)`.
             kwargs: additional keyword arguments.
 
         Returns:
@@ -106,8 +107,8 @@ class Kernel(ABC, tfk.Model):
             rotation = tf.eye(self.dim, dtype=self.dtype)[None, :, :]
             rotation = tf.tile(rotation, (omega.shape[0], 1, 1))
         
-        f1 = self.make_features(x=x1, omega=omega, rotation=rotation)
-        f2 = self.make_features(x=x2, omega=omega, rotation=rotation)
+        f1 = self.make_features(x=x1, omega=omega, rotation=rotation) # (batch_size, nx1, 2 * n_features)
+        f2 = self.make_features(x=x2, omega=omega, rotation=rotation) # (batch_size, nx2, 2 * n_features)
 
         k_approx = tf.reduce_mean(tf.matmul(f1, f2, transpose_b=True), axis=0)
         k_true = self.k(x1=x1, x2=x2)
@@ -188,10 +189,7 @@ class StationaryKernel(Kernel):
             phi: tensor, shape `(..., n, 2*n_features)`.
         """
 
-        lengthscale = tf.reshape(
-            self.lengthscales, (len(x.shape) - 1) * [1] + [-1]
-        )
-        x = x / lengthscale
+        x = x / self.lengthscales[None, :]
         x = tf.einsum("sij, nj -> sni", rotation, x)
 
         inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
