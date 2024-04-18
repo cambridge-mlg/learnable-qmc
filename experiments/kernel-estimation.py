@@ -15,9 +15,10 @@ from lqmc.joint import (
     GaussianCopulaParametrised,
 )
 
-from lqmc.gp import GaussianProcess, RandomFeatureGaussianProcess
+from lqmc.gp import GaussianProcess
 from lqmc.kernels import ExponentiatedQuadraticKernel
 from data.datasets import make_dataset
+from lqmc.utils import ortho_frame, ortho_anti_frame
 
 
 DTYPE = tf.float64
@@ -48,6 +49,11 @@ def parse_args():
     # Joint sampler arguments
     parser.add_argument("--num-ensembles", type=int)
     parser.add_argument("--num-trials", type=int)
+    parser.add_argument(
+        "--frame",
+        type=str,
+        choices=["ortho", "ortho_anti"],
+    )
 
     # Training arguments
     parser.add_argument("--seed-training", type=int)
@@ -60,7 +66,9 @@ def parse_args():
 
 
 @tf.function
-def gradient_step(optimizer: tf.keras.optimizers.Optimizer, model: tf.keras.Model):
+def gradient_step(
+    optimizer: tf.keras.optimizers.Optimizer, model: tf.keras.Model
+):
 
     with tf.GradientTape() as tape:
         loss = model.loss()
@@ -87,7 +95,9 @@ def joint_sampler_gradient_step(
         seed, loss = kernel.rmse_loss(seed=seed, omega=omega, x1=x)
 
     gradients = tape.gradient(loss, joint_sampler.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, joint_sampler.trainable_variables))
+    optimizer.apply_gradients(
+        zip(gradients, joint_sampler.trainable_variables)
+    )
 
     return seed, loss
 
@@ -133,23 +143,38 @@ def main():
     )
 
     copula_seed = [args.seed_training, args.seed_training]
+    num_points = dataset.dim if args.frame == "ortho" else 2 * dataset.dim
     joint_samplers = {
-        "iid": IndependentUniform(dim=dataset.dim, dtype=DTYPE),
-        "halton": HaltonSequence(dim=dataset.dim, dtype=DTYPE),
+        "iid": IndependentUniform(
+            dim=dataset.dim,
+            num_points=num_points,
+            dtype=DTYPE,
+        ),
+        "halton": HaltonSequence(
+            dim=dataset.dim,
+            num_points=num_points,
+            dtype=DTYPE,
+        ),
         "ortho": GaussianCopulaAntiparallelUncorrelated(
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
         "anti": GaussianCopulaAntiparallelAnticorrelated(
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
         "learnt": GaussianCopulaParametrised(
             seed=copula_seed,
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
     }
@@ -189,7 +214,9 @@ def main():
         os.remove(os.path.join(results_path, f"joint-metrics"))
 
     # Re-create optimizer
-    optimizer = tf.keras.optimizers.Adam(learning_rate=args.sampler_learning_rate)
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=args.sampler_learning_rate
+    )
 
     # Train learnt joint sampler
     pbar = trange(args.sampler_num_steps)
@@ -221,7 +248,7 @@ def main():
                 x1=dataset.x_train,
                 apply_rotation=apply_rotation,
             )
-            mse_losses.append(rmse_loss**2.)
+            mse_losses.append(rmse_loss**2.0)
 
         # Print mean and stderr of MSE losses
         mse_losses = tf.stack(mse_losses)

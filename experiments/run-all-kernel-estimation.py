@@ -43,5 +43,8 @@ for dataset, dataset_class in DATASETS.items():
                 "0.001",
                 "--sampler-num-steps",
                 "100",
+                "--frame",
+                "ortho"
             ]
         )
+        break

@@ -7,7 +7,7 @@ tfk = tf.keras
 tfd = tfp.distributions
 
 from lqmc.kernels import Kernel
-from lqmc.utils import to_tensor, orthonormal_frame
+from lqmc.utils import to_tensor, ortho_frame
 from lqmc.random import Seed, rand_unitary
 
 
@@ -136,7 +136,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
         seed, omega = self.joint_sampler(seed=seed, batch_size=num_ensembles)
         omega = self.kernel.rff_inverse_cdf(omega)
 
-        frame = orthonormal_frame(
+        frame = ortho_frame(
             dim=self.kernel.dim,
             num_pairs=self.kernel.dim,
             dtype=self.dtype,
@@ -211,7 +211,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
         seed, omega = self.joint_sampler(seed=seed, batch_size=num_ensembles)
         omega = self.kernel.rff_inverse_cdf(omega)
 
-        frame = orthonormal_frame(
+        frame = ortho_frame(
             dim=self.kernel.dim,
             num_pairs=self.kernel.dim,
             dtype=self.dtype,
