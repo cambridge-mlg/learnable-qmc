@@ -34,7 +34,7 @@ for dataset, dataset_class in DATASETS.items():
                 "--seed-training",
                 str(split_id),
                 "--num-steps",
-                "500",
+                "5000",
                 "--learning-rate",
                 "0.01",
                 "--num-trials",
@@ -42,9 +42,9 @@ for dataset, dataset_class in DATASETS.items():
                 "--sampler-learning-rate",
                 "0.001",
                 "--sampler-num-steps",
-                "100",
+                "2000",
                 "--frame",
                 "ortho"
             ]
         )
-        break
+        

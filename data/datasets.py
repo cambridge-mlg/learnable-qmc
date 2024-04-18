@@ -169,16 +169,6 @@ class ConcreteCompressiveStrength(UCIDataset):
     name: str = "concrete"
 
 
-class WineQuality(UCIDataset):
-    uci_id: int = 186
-    name: str = "wine-quality"
-
-    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
-        data = fetch_ucirepo(id=self.uci_id).data
-        is_red = data["original"]["color"] == "red"
-        return data.features[is_red], data.targets[is_red]
-
-
 class Wine(UCIDataset):
     uci_id: int = 109
     name: str = "wine"
@@ -193,6 +183,7 @@ class Abalone(UCIDataset):
         # Drop first column (binary "Sex" feature) from features dataframe
         data.features = data.features.iloc[:, 1:]
         return data.features, data.targets
+
 
 class CPU(UCIDataset):
     uci_id: int = 29
@@ -210,7 +201,11 @@ class CPU(UCIDataset):
         # Drop the "PRP" field from the features
         features = np.delete(features, -2, axis=1)
 
-        return np.array(features, dtype=np.float32), np.array(targets, dtype=np.float32)[:, None]
+        return (
+            np.array(features, dtype=np.float32),
+            np.array(targets, dtype=np.float32)[:, None],
+        )
+
 
 class PowerPlant(UCIDataset):
     uci_id: int = 294
@@ -284,7 +279,6 @@ class BostonHousing(UCIDataset):
 
 DATASETS = {
     "concrete": ConcreteCompressiveStrength,
-    "wine-quality": WineQuality,
     "wine": Wine,
     "abalone": Abalone,
     "cpu": CPU,
