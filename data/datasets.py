@@ -75,6 +75,10 @@ class UCIDataset:
     ):
 
         features, targets = self.get_raw_inputs_and_outputs()
+        if max_datapoints is not None:
+            features = features[:2*max_datapoints]
+            targets = targets[:2*max_datapoints]
+
         features = to_tensor(features, dtype=dtype)
         targets = to_tensor(targets, dtype=dtype)
 
