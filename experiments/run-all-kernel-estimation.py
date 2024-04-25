@@ -5,8 +5,7 @@ del DATASETS["superconductivity"]
 del DATASETS["yacht"]
 del DATASETS["wine"]
 
-num_splits = 20
-nums_features = [2, 4, 8]
+num_splits = 2
 
 for num_features in nums_features:
     for dataset, dataset_class in DATASETS.items():
@@ -45,7 +44,7 @@ for num_features in nums_features:
                     "--learning-rate",
                     "0.01",
                     "--num-trials",
-                    "1000",
+                    "50000",
                     "--sampler-learning-rate",
                     "0.001",
                     "--sampler-num-steps",
@@ -56,4 +55,5 @@ for num_features in nums_features:
                     f"{num_features}",
                 ]
             )
+            break
             
