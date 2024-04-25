@@ -106,11 +106,15 @@ class Kernel(ABC, tfk.Model):
         else:
             rotation = tf.eye(self.dim, dtype=self.dtype)[None, :, :]
             rotation = tf.tile(rotation, (omega.shape[0], 1, 1))
-        
-        f1 = self.make_features(x=x1, omega=omega, rotation=rotation) # (batch_size, nx1, 2 * n_features)
-        f2 = self.make_features(x=x2, omega=omega, rotation=rotation) # (batch_size, nx2, 2 * n_features)
 
-        k_approx = tf.reduce_mean(tf.matmul(f1, f2, transpose_b=True), axis=0)
+        f1 = self.make_features(
+            x=x1, omega=omega, rotation=rotation
+        )  # (batch_size, 2 * n_features * nx1)
+        f2 = self.make_features(
+            x=x2, omega=omega, rotation=rotation
+        )  # (batch_size, 2 * n_features * nx2)
+
+        k_approx = tf.matmul(f1, f2, transpose_b=True)
         k_true = self.k(x1=x1, x2=x2)
 
         return seed, tf.reduce_mean((k_approx - k_true) ** 2.0) ** 0.5
@@ -167,10 +171,14 @@ class StationaryKernel(Kernel):
             tensor, shape `(..., n, m)`.
         """
         assert x1.shape[-1] == self.dim and x2.shape[-1] == self.dim
-        lengthscales = tf.reshape(self.lengthscales, len(x1.shape) * [1] + [-1])
-        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / (lengthscales + 1e-6)
-        r2 = tf.reduce_sum(diff ** 2., axis=-1)
-        return self.output_scale**2. * self.rbf(r2=r2)
+        lengthscales = tf.reshape(
+            self.lengthscales, len(x1.shape) * [1] + [-1]
+        )
+        diff = (x1[..., :, None, :] - x2[..., None, :, :]) / (
+            lengthscales + 1e-6
+        )
+        r2 = tf.reduce_sum(diff**2.0, axis=-1)
+        return self.output_scale**2.0 * self.rbf(r2=r2)
 
     def make_features(
         self,
@@ -194,16 +202,23 @@ class StationaryKernel(Kernel):
 
         inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
 
-        features = tf.stack(
+        features = tf.concat(
             [
                 tf.cos(inner_prod),
                 tf.sin(inner_prod),
             ],
             axis=-1,
-        )
+        )  # (s, n, 2f)
 
-        s = features.shape
-        features = tf.reshape(features, (s[0], s[1], -1))
+        features = tf.transpose(
+            features,
+            (1, 0, 2),
+        )  # (n, s, 2f)
+
+        features = tf.reshape(
+            features,
+            (features.shape[0], -1),
+        )  # (n, 2sf)
 
         return (
             features

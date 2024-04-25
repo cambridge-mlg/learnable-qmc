@@ -3,13 +3,13 @@ import os
 
 from tqdm import trange
 import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
 import matplotlib.pyplot as plt
 
 from lqmc.joint import (
     IndependentUniform,
     HaltonSequence,
-    GaussianCopulaAntiparallelCorrelated,
     GaussianCopulaAntiparallelUncorrelated,
     GaussianCopulaAntiparallelAnticorrelated,
     GaussianCopulaParametrised,
@@ -21,6 +21,7 @@ from data.datasets import make_dataset
 
 
 DTYPE = tf.float64
+tfd = tfp.distributions
 
 
 def parse_args():
@@ -29,7 +30,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # Results arguments
-    parser.add_argument("--results-path", type=str, default="_results")
+    parser.add_argument("--experiment-name", type=str)
 
     # Dataset arguments
     parser.add_argument("--dataset", type=str)
@@ -48,6 +49,12 @@ def parse_args():
     # Joint sampler arguments
     parser.add_argument("--num-ensembles", type=int)
     parser.add_argument("--num-trials", type=int)
+    parser.add_argument(
+        "--frame",
+        type=str,
+        choices=["ortho", "ortho_anti"],
+    )
+    parser.add_argument("--num-features", type=int)
 
     # Training arguments
     parser.add_argument("--seed-training", type=int)
@@ -59,8 +66,29 @@ def parse_args():
     return parser.parse_args()
 
 
+def kld(
+    exact_mean: tf.Tensor,
+    exact_cov: tf.Tensor,
+    approx_mean: tf.Tensor,
+    approx_cov: tf.Tensor,
+):
+    exact_dist = tfd.MultivariateNormalTriL(
+        loc=exact_mean,
+        scale_tril=tf.linalg.cholesky(exact_cov),
+    )
+
+    approx_dist = tfd.MultivariateNormalTriL(
+        loc=approx_mean,
+        scale_tril=tf.linalg.cholesky(approx_cov),
+    )
+
+    return tfd.kl_divergence(exact_dist, approx_dist)
+
+
 @tf.function
-def gradient_step(optimizer: tf.keras.optimizers.Optimizer, model: tf.keras.Model):
+def gradient_step(
+    optimizer: tf.keras.optimizers.Optimizer, model: tf.keras.Model
+):
 
     with tf.GradientTape() as tape:
         loss = model.loss()
@@ -87,9 +115,60 @@ def joint_sampler_gradient_step(
         seed, loss = kernel.rmse_loss(seed=seed, omega=omega, x1=x)
 
     gradients = tape.gradient(loss, joint_sampler.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, joint_sampler.trainable_variables))
+    optimizer.apply_gradients(
+        zip(gradients, joint_sampler.trainable_variables)
+    )
 
     return seed, loss
+
+
+def run_single_trial(
+    seed: tf.Tensor,
+    joint: tf.keras.Model,
+    num_ensembles: int,
+    name: str,
+    kernel: tf.keras.Model,
+    dataset,
+    rfgp: tf.keras.Model,
+    exact_mean: tf.Tensor,
+    exact_cov: tf.Tensor,
+):
+    seed, omega = joint(seed, batch_size=num_ensembles)
+    apply_rotation = name not in ["iid", "halton"]
+    seed, rmse_loss = kernel.rmse_loss(
+        seed=seed,
+        omega=omega,
+        x1=dataset.x_test,
+        apply_rotation=apply_rotation,
+    )
+
+    seed, nll_pred_loss = rfgp.pred_loss(
+        seed=seed,
+        x_pred=dataset.x_test,
+        y_pred=dataset.y_test,
+        num_ensembles=num_ensembles,
+    )
+    nll_pred_loss = nll_pred_loss + tf.math.log(dataset.y_std[0])
+
+    seed, pred_mean, pred_cov = rfgp(
+        seed,
+        dataset.x_test,
+        num_ensembles=num_ensembles,
+    )
+    pred_rmse_loss = tf.reduce_mean((pred_mean - dataset.y_test) ** 2.0) ** 0.5
+    pred_rmse_loss = pred_rmse_loss * dataset.y_std[0]
+
+    kl_divergence = (
+        kld(
+            exact_mean=exact_mean,
+            exact_cov=exact_cov,
+            approx_mean=pred_mean,
+            approx_cov=pred_cov,
+        )
+        / dataset.y_test.shape[0]
+    )
+
+    return seed, rmse_loss, nll_pred_loss, pred_rmse_loss, kl_divergence
 
 
 def main():
@@ -99,7 +178,8 @@ def main():
 
     # Create directories if they don't exist
     results_path = os.path.join(
-        args.results_path,
+        "_results",
+        args.experiment_name,
         args.dataset,
         f"split_{args.split_id}_{args.num_splits}",
     )
@@ -133,23 +213,41 @@ def main():
     )
 
     copula_seed = [args.seed_training, args.seed_training]
+    num_points = (
+        args.num_features if args.num_features is not None else dataset.dim
+    )
+    num_points = num_points if args.frame == "ortho" else 2 * num_points
     joint_samplers = {
-        "iid": IndependentUniform(dim=dataset.dim, dtype=DTYPE),
-        "halton": HaltonSequence(dim=dataset.dim, dtype=DTYPE),
+        "iid": IndependentUniform(
+            dim=dataset.dim,
+            num_points=num_points,
+            dtype=DTYPE,
+        ),
+        "halton": HaltonSequence(
+            dim=dataset.dim,
+            num_points=num_points,
+            dtype=DTYPE,
+        ),
         "ortho": GaussianCopulaAntiparallelUncorrelated(
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
         "anti": GaussianCopulaAntiparallelAnticorrelated(
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
         "learnt": GaussianCopulaParametrised(
             seed=copula_seed,
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
             dtype=DTYPE,
         ),
     }
@@ -164,9 +262,11 @@ def main():
         pbar.set_description(f"GP loss: {loss.numpy():.4f}")
 
     # Evaluate RMSE and NLL on test set
-    mean, _ = gp(dataset.x_test, noiseless=False)
-    rmse = tf.reduce_mean((mean - dataset.y_test) ** 2.0) ** 0.5
-    nll = gp.pred_nll(dataset.x_test, dataset.y_test)
+    exact_mean, exact_cov = gp(dataset.x_test)
+    rmse = tf.reduce_mean((exact_mean - dataset.y_test) ** 2.0) ** 0.5
+    rmse = rmse * dataset.y_std[0]
+    nll = gp.pred_loss(dataset.x_test, dataset.y_test)
+    nll = nll + tf.math.log(dataset.y_std[0])
 
     # Print prediction metrics and save them into a text file
     print(f"RMSE: {rmse.numpy()}")
@@ -189,7 +289,9 @@ def main():
         os.remove(os.path.join(results_path, f"joint-metrics"))
 
     # Re-create optimizer
-    optimizer = tf.keras.optimizers.Adam(learning_rate=args.sampler_learning_rate)
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=args.sampler_learning_rate
+    )
 
     # Train learnt joint sampler
     pbar = trange(args.sampler_num_steps)
@@ -211,31 +313,100 @@ def main():
 
     # Loop over joints
     for name, joint in joint_samplers.items():
-        mse_losses = []
-        for _ in trange(args.num_trials):
-            seed, omega = joint(seed, batch_size=args.num_ensembles)
-            apply_rotation = name not in ["iid", "halton"]
-            seed, rmse_loss = kernel.rmse_loss(
-                seed=seed,
-                omega=omega,
-                x1=dataset.x_train,
-                apply_rotation=apply_rotation,
-            )
-            mse_losses.append(rmse_loss**2.)
 
-        # Print mean and stderr of MSE losses
-        mse_losses = tf.stack(mse_losses)
-        mean_mse_loss = tf.reduce_mean(mse_losses)
-        stderr_mse_loss = tf.math.reduce_std(mse_losses) / args.num_trials**0.5
+        rfgp = RandomFeatureGaussianProcess(
+            kernel=kernel,
+            noise_std=float(gp.noise_std),
+            x=dataset.x_train,
+            y=dataset.y_train,
+            joint_sampler=joint,
+            dtype=DTYPE,
+        )
+
+        rmse_losses = []
+        nll_losses = []
+        pred_rmse_losses = []
+        pred_kld = []
+        tf_run_single_trial = tf.function(run_single_trial)
+        for _ in trange(args.num_trials):
+            seed, rmse_loss, nll_loss, pred_rmse_loss, kld_loss = (
+                tf_run_single_trial(
+                    seed=seed,
+                    joint=joint,
+                    num_ensembles=args.num_ensembles,
+                    name=name,
+                    kernel=kernel,
+                    dataset=dataset,
+                    rfgp=rfgp,
+                    exact_mean=exact_mean,
+                    exact_cov=exact_cov,
+                )
+            )
+            rmse_losses.append(rmse_loss)
+            nll_losses.append(nll_loss)
+            pred_rmse_losses.append(pred_rmse_loss)
+            pred_kld.append(kld_loss)
+
+        rmse_losses = tf.stack(rmse_losses)
+        mean_rmse_loss = tf.reduce_mean(rmse_losses)
+        stderr_rmse_loss = (
+            tf.math.reduce_std(rmse_losses) / args.num_trials**0.5
+        )
+
+        nll_losses = tf.stack(nll_losses)
+        mean_nll_loss = tf.reduce_mean(nll_losses)
+        stderr_nll_loss = tf.math.reduce_std(nll_losses) / args.num_trials**0.5
+
+        pred_rmse_losses = tf.stack(pred_rmse_losses)
+        mean_pred_rmse_loss = tf.reduce_mean(pred_rmse_losses)
+        stderr_pred_rmse_loss = (
+            tf.math.reduce_std(pred_rmse_losses) / args.num_trials**0.5
+        )
+
+        pred_kld = tf.stack(pred_kld)
+        mean_pred_kld = tf.reduce_mean(pred_kld)
+        stderr_pred_kld = tf.math.reduce_std(pred_kld) / args.num_trials**0.5
 
         print(
-            f"\n{name} MSE loss: {mean_mse_loss.numpy()} +/- {stderr_mse_loss.numpy()}\n"
+            f"\n{name} Kernel RMSE loss: {mean_rmse_loss.numpy()} +/- {2. * stderr_rmse_loss.numpy()}"
+        )
+
+        print(
+            f"{name} Pred NLL loss: {mean_nll_loss.numpy()} +/- {2. * stderr_nll_loss.numpy()}"
+        )
+
+        print(
+            f"{name} Pred RMSE loss: {mean_pred_rmse_loss.numpy()} +/- {2. * stderr_pred_rmse_loss.numpy()}"
+        )
+
+        print(
+            f"{name} Pred KLD: {mean_pred_kld.numpy()} +/- {2. * stderr_pred_kld.numpy()}"
         )
 
         # Save mean and stderr of MSE losses into a text file
-        with open(os.path.join(results_path, f"joint-metrics"), "a") as file:
+        with open(
+            os.path.join(results_path, f"kernel-rmse-losses"), "a"
+        ) as file:
             file.write(
-                f"{name} MSE: {mean_mse_loss.numpy()} +/- {stderr_mse_loss.numpy()}\n"
+                f"{name} Kernel MSE: {mean_rmse_loss.numpy()} +/- {2. * stderr_rmse_loss.numpy()}\n"
+            )
+
+        # Save mean and stderr of NLL losses into a text file
+        with open(os.path.join(results_path, f"pred-nll-losses"), "a") as file:
+            file.write(
+                f"{name} Pred NLL: {mean_nll_loss.numpy()} +/- {2. * stderr_nll_loss.numpy()}\n"
+            )
+
+        with open(
+            os.path.join(results_path, f"pred-rmse-losses"), "a"
+        ) as file:
+            file.write(
+                f"{name} Pred RMSE: {mean_pred_rmse_loss.numpy()} +/- {2. * stderr_pred_rmse_loss.numpy()}\n"
+            )
+
+        with open(os.path.join(results_path, f"pred-kld"), "a") as file:
+            file.write(
+                f"{name} Pred KLD: {mean_pred_kld.numpy()} +/- {2. * stderr_pred_kld.numpy()}\n"
             )
 
         # Save learnt sampler covariance as numpy and imshow

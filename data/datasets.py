@@ -3,6 +3,7 @@ import os
 
 import wget
 import pandas as pd
+import numpy as np
 import tensorflow as tf
 from ucimlrepo import fetch_ucirepo
 
@@ -24,7 +25,9 @@ def _split_train_test(
     test_end_idx = test_start_idx + split_size
 
     # Create the train split and then the test split
-    train_split = tf.concat([tensor[:test_start_idx], tensor[test_end_idx:]], axis=0)
+    train_split = tf.concat(
+        [tensor[:test_start_idx], tensor[test_end_idx:]], axis=0
+    )
     test_split = tensor[test_start_idx:test_end_idx]
 
     return train_split, test_split
@@ -36,9 +39,13 @@ def _normalise(
     stddev: Optional[tf.Tensor] = None,
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 
-    mean = tf.reduce_mean(tensor, axis=0, keepdims=True) if mean is None else mean
+    mean = (
+        tf.reduce_mean(tensor, axis=0, keepdims=True) if mean is None else mean
+    )
     std = (
-        tf.math.reduce_std(tensor, axis=0, keepdims=True) if stddev is None else stddev
+        tf.math.reduce_std(tensor, axis=0, keepdims=True)
+        if stddev is None
+        else stddev
     )
     normalised_tensor = (tensor - mean) / std
 
@@ -68,10 +75,16 @@ class UCIDataset:
     ):
 
         features, targets = self.get_raw_inputs_and_outputs()
+        if max_datapoints is not None:
+            features = features[:2*max_datapoints]
+            targets = targets[:2*max_datapoints]
+
         features = to_tensor(features, dtype=dtype)
         targets = to_tensor(targets, dtype=dtype)
 
-        seed, idx = randperm(seed=seed, shape=(), maxval=tf.shape(features)[0] - 1)
+        seed, idx = randperm(
+            seed=seed, shape=(), maxval=tf.shape(features)[0] - 1
+        )
 
         self._x = tf.gather(features, idx, axis=0)
         self._y = tf.gather(targets, idx, axis=0)[:, 0]
@@ -103,11 +116,17 @@ class UCIDataset:
             stddev=self.y_std,
         )
 
-        if max_datapoints is not None and self.x_train.shape[0] > max_datapoints:
+        if (
+            max_datapoints is not None
+            and self.x_train.shape[0] > max_datapoints
+        ):
             self.x_train = self.x_train[:max_datapoints]
             self.y_train = self.y_train[:max_datapoints]
 
-        if max_datapoints is not None and self.x_test.shape[0] > max_datapoints:
+        if (
+            max_datapoints is not None
+            and self.x_test.shape[0] > max_datapoints
+        ):
             self.x_test = self.x_test[:max_datapoints]
             self.y_test = self.y_test[:max_datapoints]
 
@@ -136,7 +155,9 @@ class UCICSVDataset(UCIDataset):
             os.makedirs("_data/zip", exist_ok=True)
 
         if not os.path.exists(f"_data/zip/{self.name}"):
-            file = wget.download(self.url_to_tar, out=f"_data/zip/{self.name}.zip")
+            file = wget.download(
+                self.url_to_tar, out=f"_data/zip/{self.name}.zip"
+            )
 
         if not os.path.exists(f"_data/{self.name}"):
             os.system(f"unzip _data/zip/{self.name}.zip -d _data/{self.name}")
@@ -152,16 +173,6 @@ class ConcreteCompressiveStrength(UCIDataset):
     name: str = "concrete"
 
 
-class WineQuality(UCIDataset):
-    uci_id: int = 186
-    name: str = "wine-quality"
-
-    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
-        data = fetch_ucirepo(id=self.uci_id).data
-        is_red = data["original"]["color"] == "red"
-        return data.features[is_red], data.targets[is_red]
-
-
 class Wine(UCIDataset):
     uci_id: int = 109
     name: str = "wine"
@@ -171,10 +182,33 @@ class Abalone(UCIDataset):
     uci_id: int = 1
     name: str = "abalone"
 
+    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        data = fetch_ucirepo(id=self.uci_id).data
+        # Drop first column (binary "Sex" feature) from features dataframe
+        data.features = data.features.iloc[:, 1:]
+        return data.features, data.targets
+
 
 class CPU(UCIDataset):
     uci_id: int = 29
     name: str = "cpu"
+
+    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        data = fetch_ucirepo(id=self.uci_id).data
+
+        # Drop first two columns (binary features "VendorName" and "ModelName")
+        features = data.features.iloc[:, 2:]
+
+        # Set targets to the "PRP" (published relative performance) field (second to last)
+        targets = features.iloc[:, -2]
+
+        # Drop the "PRP" field from the features
+        features = np.delete(features, -2, axis=1)
+
+        return (
+            np.array(features, dtype=np.float32),
+            np.array(targets, dtype=np.float32)[:, None],
+        )
 
 
 class PowerPlant(UCIDataset):
@@ -249,7 +283,6 @@ class BostonHousing(UCIDataset):
 
 DATASETS = {
     "concrete": ConcreteCompressiveStrength,
-    "wine-quality": WineQuality,
     "wine": Wine,
     "abalone": Abalone,
     "cpu": CPU,
