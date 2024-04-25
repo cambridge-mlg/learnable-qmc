@@ -17,7 +17,7 @@ for dataset, dataset_class in DATASETS.items():
                 "python",
                 "experiments/kernel-estimation.py",
                 "--experiment-name",
-                f"f-{num_features}",
+                f"f-full",
                 "--dataset",
                 dataset,
                 "--seed-dataset",
