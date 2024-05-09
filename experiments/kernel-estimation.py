@@ -54,6 +54,11 @@ def parse_args():
         type=str,
         choices=["ortho", "ortho_anti"],
     )
+    parser.add_argument(
+        "--rf",
+        type=str,
+        choices=["fourier", "laplace"],
+    )
     parser.add_argument("--num-features", type=int)
 
     # Training arguments
@@ -200,6 +205,7 @@ def main():
         output_scale=args.output_scale,
         dim=dataset.dim,
         dtype=DTYPE,
+        feature_approximation=args.rf,
     )
 
     # Create GP

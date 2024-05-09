@@ -17,7 +17,7 @@ for dataset, dataset_class in DATASETS.items():
                 "python",
                 "experiments/kernel-estimation.py",
                 "--experiment-name",
-                f"paper-run",
+                f"laplace",
                 "--dataset",
                 dataset,
                 "--seed-dataset",
@@ -43,13 +43,15 @@ for dataset, dataset_class in DATASETS.items():
                 "--learning-rate",
                 "0.01",
                 "--num-trials",
-                "5000",
+                "500",
                 "--sampler-learning-rate",
                 "0.001",
                 "--sampler-num-steps",
                 "1000",
                 "--frame",
                 "ortho",
+                "--rf",
+                "laplace",
             ]
         )
         
