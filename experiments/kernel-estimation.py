@@ -134,12 +134,11 @@ def run_single_trial(
     exact_cov: tf.Tensor,
 ):
     seed, omega = joint(seed, batch_size=num_ensembles)
-    apply_rotation = name not in ["iid", "halton"]
     seed, rmse_loss = kernel.rmse_loss(
         seed=seed,
         omega=omega,
         x1=dataset.x_test,
-        apply_rotation=apply_rotation,
+        apply_rotation=True,
     )
 
     seed, nll_pred_loss = rfgp.pred_loss(
@@ -197,7 +196,7 @@ def main():
 
     # Create kernel
     kernel = ExponentiatedQuadraticKernel(
-        lengthscales=dataset.dim * [args.lengthscale],
+        lengthscale=args.lengthscale,
         output_scale=args.output_scale,
         dim=dataset.dim,
         dtype=DTYPE,

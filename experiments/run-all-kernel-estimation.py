@@ -5,7 +5,7 @@ del DATASETS["superconductivity"]
 del DATASETS["yacht"]
 del DATASETS["wine"]
 
-num_splits = 2
+num_splits = 20
 
 for dataset, dataset_class in DATASETS.items():
     for split_id in range(num_splits):
@@ -17,7 +17,7 @@ for dataset, dataset_class in DATASETS.items():
                 "python",
                 "experiments/kernel-estimation.py",
                 "--experiment-name",
-                f"f-full",
+                f"paper-run",
                 "--dataset",
                 dataset,
                 "--seed-dataset",
@@ -43,14 +43,13 @@ for dataset, dataset_class in DATASETS.items():
                 "--learning-rate",
                 "0.01",
                 "--num-trials",
-                "50000",
+                "5000",
                 "--sampler-learning-rate",
                 "0.001",
                 "--sampler-num-steps",
-                "2000",
+                "1000",
                 "--frame",
                 "ortho",
             ]
         )
-        break
         

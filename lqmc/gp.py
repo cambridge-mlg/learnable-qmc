@@ -155,47 +155,6 @@ class RandomFeatureGaussianProcess(GaussianProcess):
 
         k = tf.matmul(features, features, transpose_b=True)
 
-        # features = tf.transpose(features, (1, 0))
-
-        # features_data = features[:, :num_data]
-        # features_pred = features[:, num_data:]
-
-        # iS = (
-        #    tf.eye(features_data.shape[0], dtype=self.dtype)
-        #    + tf.linalg.matmul(
-        #        features_data,
-        #        features_data,
-        #        transpose_b=True,
-        #    )
-        #    / self.noise_std**2.0
-        # )
-
-        ## Compute predictive mean
-        # mean_pred = (
-        #    self.noise_std**-2.0
-        #    * tf.linalg.matmul(
-        #        features_pred,
-        #        tf.linalg.solve(iS, features_data @ self.y_train[:, None]),
-        #        transpose_a=True,
-        #    )[:, 0]
-        # )
-
-        ## Compute predictive covariance
-        # cov_pred = tf.einsum(
-        #    "fi, fj -> ij",
-        #    features_pred,
-        #    tf.linalg.solve(iS, features_pred),
-        # )
-        # cov_pred += (
-        #    tf.eye(
-        #        tf.shape(x_pred)[0],
-        #        dtype=cov_pred.dtype,
-        #    )
-        #    * self.noise_std**2.0
-        # )
-
-        # return seed, mean_pred, cov_pred
-
         ktp = k[:num_data, num_data:]
         kpp = k[num_data:, num_data:]
         ktt = k[:num_data, :num_data]
@@ -267,9 +226,6 @@ class RandomFeatureGaussianProcess(GaussianProcess):
             rotation=rotation,
         )
 
-        features = tf.transpose(features, (0, 2, 1))
-        features = tf.reshape(features, (-1, features.shape[-1]))
-
         mean = self.mean_function(self.x_train)
         diag_noise = (
             tf.eye(
@@ -282,7 +238,7 @@ class RandomFeatureGaussianProcess(GaussianProcess):
         predictive = tfd.MultivariateNormalDiagPlusLowRankCovariance(
             loc=mean,
             cov_diag_factor=tf.linalg.diag_part(diag_noise),
-            cov_perturb_factor=tf.transpose(features, (1, 0)),
+            cov_perturb_factor=features,
         )
 
         log_prob = predictive.log_prob(self.y_train)

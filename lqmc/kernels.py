@@ -81,8 +81,7 @@ class Kernel(ABC, tfk.Model):
         x2: Optional[tf.Tensor] = None,
         apply_rotation: bool = True,
     ) -> tf.Tensor:
-        """Computes the loss between the pair `x1`, `x2`.
-
+        """
         Arguments:
             x1: tensor, shape `(..., n, dim)`.
             x2: tensor, shape `(..., m, dim)`.
@@ -119,26 +118,82 @@ class Kernel(ABC, tfk.Model):
 
         return seed, tf.reduce_mean((k_approx - k_true) ** 2.0) ** 0.5
 
+    def inverse_rmse_loss(
+        self,
+        seed: Seed,
+        omega: tf.Tensor,
+        noise_std: tf.Tensor,
+        x: tf.Tensor,
+        apply_rotation: bool = True,
+    ) -> tf.Tensor:
+        """
+        Arguments:
+            x: tensor, shape `(..., n, dim)`.
+            omega: tensor, shape `(batch_size, 2 * dim, dim)`.
+            kwargs: additional keyword arguments.
+
+        Returns:
+            tensor, shape `(,)`.
+        """
+
+        if apply_rotation:
+            seed, rotation = rand_unitary(
+                seed=seed,
+                shape=(omega.shape[0],),
+                dim=self.dim,
+                dtype=self.dtype,
+            )
+
+        else:
+            rotation = tf.eye(self.dim, dtype=self.dtype)[None, :, :]
+            rotation = tf.tile(rotation, (omega.shape[0], 1, 1))
+
+        f = self.make_features(
+            x=x, omega=omega, rotation=rotation
+        )  # (batch_size, 2 * n_features * nx)
+
+        k_approx = tf.matmul(f, f, transpose_b=True)
+        k_true = self.k(x1=x, x2=x)
+
+        noise = tf.eye(
+            tf.shape(x)[0],
+            dtype=self.dtype,
+        ) * noise_std**2.0
+
+        # Invert k_approx + noise by backsolving with a Cholesky decomposition
+        k_approx_inv = tf.linalg.cholesky_solve(
+            tf.linalg.cholesky(k_approx + noise),
+            tf.eye(tf.shape(x)[0], dtype=self.dtype),
+        )
+
+        # Invert k_true + noise by backsolving with a Cholesky decomposition
+        k_true_inv = tf.linalg.cholesky_solve(
+            tf.linalg.cholesky(k_true + noise),
+            tf.eye(tf.shape(x)[0], dtype=self.dtype),
+        )
+
+        return seed, tf.reduce_mean((k_approx_inv - k_true_inv) ** 2.0) ** 0.5
+
 
 class StationaryKernel(Kernel):
     def __init__(
         self,
         dim: int,
-        lengthscales: List[float],
+        lengthscale: float,
         output_scale: float = 1.0,
         name: str = "eq_kernel",
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
 
-        # Check length scales are positive
-        assert all([l > 0 for l in lengthscales])
+        # Check length scale is positive
+        assert lengthscale > 0.
 
-        # Initialise log length scales
-        self.log_lengthscales = tf.Variable(
+        # Initialise log length scale
+        self.log_lengthscale = tf.Variable(
             tf.math.log(
                 to_tensor(
-                    lengthscales,
+                    lengthscale,
                     dtype=self.dtype,
                 )
             ),
@@ -150,7 +205,7 @@ class StationaryKernel(Kernel):
 
     @property
     def lengthscales(self) -> tf.Tensor:
-        return tf.exp(self.log_lengthscales)
+        return tf.exp(tf.stack(self.dim * [self.log_lengthscale]))
 
     @property
     def output_scale(self) -> tf.Tensor:
