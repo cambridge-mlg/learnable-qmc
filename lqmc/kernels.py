@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple, Union
+from typing import Optional, Literal
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -155,10 +155,13 @@ class Kernel(ABC, tfk.Model):
         k_approx = tf.matmul(f, f, transpose_b=True)
         k_true = self.k(x1=x, x2=x)
 
-        noise = tf.eye(
-            tf.shape(x)[0],
-            dtype=self.dtype,
-        ) * noise_std**2.0
+        noise = (
+            tf.eye(
+                tf.shape(x)[0],
+                dtype=self.dtype,
+            )
+            * noise_std**2.0
+        )
 
         # Invert k_approx + noise by backsolving with a Cholesky decomposition
         k_approx_inv = tf.linalg.cholesky_solve(
@@ -182,12 +185,13 @@ class StationaryKernel(Kernel):
         lengthscale: float,
         output_scale: float = 1.0,
         name: str = "eq_kernel",
+        feature_approximation: Literal["fourier", "laplace"] = "fourier",
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
 
         # Check length scale is positive
-        assert lengthscale > 0.
+        assert lengthscale > 0.0
 
         # Initialise log length scale
         self.log_lengthscale = tf.Variable(
@@ -202,6 +206,8 @@ class StationaryKernel(Kernel):
         self.log_output_scale = tf.Variable(
             tf.math.log(to_tensor(output_scale, dtype=self.dtype)),
         )
+
+        self.feature_approximation = feature_approximation
 
     @property
     def lengthscales(self) -> tf.Tensor:
@@ -255,6 +261,23 @@ class StationaryKernel(Kernel):
         x = x / self.lengthscales[None, :]
         x = tf.einsum("sij, nj -> sni", rotation, x)
 
+        if self.feature_approximation == "fourier":
+            return self.make_fourier_features(omega, x)
+
+        elif self.feature_approximation == "laplace":
+            return self.make_laplace_features(omega, x)
+
+        else:
+            raise ValueError(
+                f"Unknown feature approximation {self.feature_approximation}"
+            )
+
+    def make_fourier_features(
+        self,
+        omega: tf.Tensor,
+        x: tf.Tensor,
+    ) -> tf.Tensor:
+
         inner_prod = tf.einsum("sfi, sni -> snf", omega, x)
 
         features = tf.concat(
@@ -265,19 +288,31 @@ class StationaryKernel(Kernel):
             axis=-1,
         )  # (s, n, 2f)
 
-        features = tf.transpose(
-            features,
-            (1, 0, 2),
-        )  # (n, s, 2f)
-
-        features = tf.reshape(
-            features,
-            (features.shape[0], -1),
-        )  # (n, 2sf)
+        features = tf.transpose(features, (1, 0, 2))
+        features = tf.reshape(features, (features.shape[0], -1))
 
         return (
             features
             / tf.sqrt(cast(features.shape[-1] // 2, features.dtype))
+            * self.output_scale
+        )
+
+    def make_laplace_features(
+        self,
+        omega: tf.Tensor,
+        x: tf.Tensor,
+    ) -> tf.Tensor:
+
+        inner_prod = tf.einsum("sfi, sni -> snf", omega, x)  # (s, n, f)
+        norm2 = tf.reduce_sum(x**2.0, axis=-1, keepdims=True)  # (s, n, 1)
+        features = tf.exp(-norm2) * tf.exp(inner_prod)  # (s, n, f)
+
+        features = tf.transpose(features, (1, 0, 2))  # (n, s, f)
+        features = tf.reshape(features, (features.shape[0], -1))  # (n, sf)
+
+        return (
+            features
+            / tf.sqrt(cast(features.shape[-1], features.dtype))
             * self.output_scale
         )
 
