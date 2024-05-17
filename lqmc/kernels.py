@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Literal
+from typing import Optional, Literal, Tuple
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -73,25 +73,15 @@ class Kernel(ABC, tfk.Model):
         """
         pass
 
-    def rmse_loss(
+    def k_approx(
         self,
         seed: Seed,
         omega: tf.Tensor,
         x1: tf.Tensor,
         x2: Optional[tf.Tensor] = None,
         apply_rotation: bool = True,
-    ) -> tf.Tensor:
-        """
-        Arguments:
-            x1: tensor, shape `(..., n, dim)`.
-            x2: tensor, shape `(..., m, dim)`.
-            omega: tensor, shape `(batch_size, 2 * dim, dim)`.
-            kwargs: additional keyword arguments.
-
-        Returns:
-            tensor, shape `(,)`.
-        """
-
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
+        
         x2 = x2 if x2 is not None else x1
 
         if apply_rotation:
@@ -113,8 +103,35 @@ class Kernel(ABC, tfk.Model):
             x=x2, omega=omega, rotation=rotation
         )  # (batch_size, 2 * n_features * nx2)
 
-        k_approx = tf.matmul(f1, f2, transpose_b=True)
+        return seed, tf.matmul(f1, f2, transpose_b=True)
+
+    def rmse_loss(
+        self,
+        seed: Seed,
+        omega: tf.Tensor,
+        x1: tf.Tensor,
+        x2: Optional[tf.Tensor] = None,
+        apply_rotation: bool = True,
+    ) -> tf.Tensor:
+        """
+        Arguments:
+            x1: tensor, shape `(..., n, dim)`.
+            x2: tensor, shape `(..., m, dim)`.
+            omega: tensor, shape `(batch_size, 2 * dim, dim)`.
+            kwargs: additional keyword arguments.
+
+        Returns:
+            tensor, shape `(,)`.
+        """
+
         k_true = self.k(x1=x1, x2=x2)
+        seed, k_approx = self.k_approx(
+            seed=seed,
+            omega=omega,
+            x1=x1,
+            x2=x2,
+            apply_rotation=apply_rotation,
+        )
 
         return seed, tf.reduce_mean((k_approx - k_true) ** 2.0) ** 0.5
 
@@ -186,6 +203,7 @@ class StationaryKernel(Kernel):
         output_scale: float = 1.0,
         name: str = "eq_kernel",
         feature_approximation: Literal["fourier", "laplace"] = "fourier",
+        trainable_lengthscale: bool = True,
         **kwargs,
     ):
         super().__init__(dim=dim, name=name, **kwargs)
@@ -201,6 +219,7 @@ class StationaryKernel(Kernel):
                     dtype=self.dtype,
                 )
             ),
+            trainable=trainable_lengthscale,
         )
 
         self.log_output_scale = tf.Variable(
@@ -221,7 +240,7 @@ class StationaryKernel(Kernel):
     def rbf(self, r: tf.Tensor) -> tf.Tensor:
         pass
 
-    def k(self, x1: tf.Tensor, x2: tf.Tensor) -> tf.Tensor:
+    def k(self, x1: tf.Tensor, x2: Optional[tf.Tensor] = None) -> tf.Tensor:
         """Computes the value of the kernel on the pair `x1`, `x2`.
 
         Arguments:
@@ -231,6 +250,7 @@ class StationaryKernel(Kernel):
         Returns:
             tensor, shape `(..., n, m)`.
         """
+        x2 = x2 if x2 is not None else x1
         assert x1.shape[-1] == self.dim and x2.shape[-1] == self.dim
         lengthscales = tf.reshape(
             self.lengthscales, len(x1.shape) * [1] + [-1]

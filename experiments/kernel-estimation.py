@@ -12,6 +12,7 @@ from lqmc.joint import (
     HaltonSequence,
     GaussianCopulaAntiparallelUncorrelated,
     GaussianCopulaAntiparallelAnticorrelated,
+    GaussianCopulaAntiparallelCorrelated,
     GaussianCopulaParametrised,
 )
 
@@ -162,7 +163,27 @@ def run_single_trial(
     pred_rmse_loss = tf.reduce_mean((pred_mean - dataset.y_test) ** 2.0) ** 0.5
     pred_rmse_loss = pred_rmse_loss * dataset.y_std[0]
 
-    kl_divergence = (
+    exact_prior_cov = rfgp.kernel(dataset.x_test, dataset.x_test)
+    seed, approx_prior_cov = rfgp.kernel.k_approx(
+        seed=None,
+        omega=omega,
+        x1=dataset.x_test,
+        x2=dataset.x_test,
+    )
+
+    exact_prior_cov += tf.eye(dataset.y_test.shape[0], dtype=DTYPE) * rfgp.noise_std**2.0
+    approx_prior_cov += tf.eye(dataset.y_test.shape[0], dtype=DTYPE) * rfgp.noise_std**2.0
+
+    kld_prior = (
+        kld(
+            exact_mean=tf.zeros_like(dataset.y_test),
+            exact_cov=exact_prior_cov,
+            approx_mean=tf.zeros_like(dataset.y_test),
+            approx_cov=approx_prior_cov,
+        )
+    ) / dataset.y_test.shape[0]
+
+    kld_pred = (
         kld(
             exact_mean=exact_mean,
             exact_cov=exact_cov,
@@ -172,7 +193,7 @@ def run_single_trial(
         / dataset.y_test.shape[0]
     )
 
-    return seed, rmse_loss, nll_pred_loss, pred_rmse_loss, kl_divergence
+    return seed, rmse_loss, nll_pred_loss, pred_rmse_loss, kld_pred, kld_prior
 
 
 def main():
@@ -189,6 +210,7 @@ def main():
     )
     os.makedirs(results_path, exist_ok=True)
 
+    print("Making dataset...")
     # Create dataset
     dataset = make_dataset(
         name=args.dataset,
@@ -199,13 +221,25 @@ def main():
         dtype=DTYPE,
     )
 
+    if args.lengthscale is not None:
+        lengthscale = args.lengthscale
+    else:
+        lengthscale = 2.0 * tf.reduce_mean(
+            tf.reduce_sum(
+                (dataset.x_train[:, None, :] - dataset.x_train[None, :, :])
+                ** 2.0,
+                axis=-1,
+            )**0.5,
+        )
+
     # Create kernel
     kernel = ExponentiatedQuadraticKernel(
-        lengthscale=args.lengthscale,
+        lengthscale=lengthscale,
         output_scale=args.output_scale,
         dim=dataset.dim,
         dtype=DTYPE,
         feature_approximation=args.rf,
+        trainable_lengthscale=args.lengthscale is not None,
     )
 
     # Create GP
@@ -241,6 +275,13 @@ def main():
             dtype=DTYPE,
         ),
         "anti": GaussianCopulaAntiparallelAnticorrelated(
+            dim=dataset.dim,
+            inverse_cdf=kernel.rff_inverse_cdf,
+            frame_type=args.frame,
+            num_points=num_points,
+            dtype=DTYPE,
+        ),
+        "corr": GaussianCopulaAntiparallelCorrelated(
             dim=dataset.dim,
             inverse_cdf=kernel.rff_inverse_cdf,
             frame_type=args.frame,
@@ -332,9 +373,10 @@ def main():
         nll_losses = []
         pred_rmse_losses = []
         pred_kld = []
+        prior_kld = []
         tf_run_single_trial = tf.function(run_single_trial)
         for _ in trange(args.num_trials):
-            seed, rmse_loss, nll_loss, pred_rmse_loss, kld_loss = (
+            seed, rmse_loss, nll_loss, pred_rmse_loss, kld_pred, kld_prior = (
                 tf_run_single_trial(
                     seed=seed,
                     joint=joint,
@@ -350,7 +392,8 @@ def main():
             rmse_losses.append(rmse_loss)
             nll_losses.append(nll_loss)
             pred_rmse_losses.append(pred_rmse_loss)
-            pred_kld.append(kld_loss)
+            pred_kld.append(kld_pred)
+            prior_kld.append(kld_prior)
 
         rmse_losses = tf.stack(rmse_losses)
         mean_rmse_loss = tf.reduce_mean(rmse_losses)
@@ -372,6 +415,10 @@ def main():
         mean_pred_kld = tf.reduce_mean(pred_kld)
         stderr_pred_kld = tf.math.reduce_std(pred_kld) / args.num_trials**0.5
 
+        prior_kld = tf.stack(prior_kld)
+        mean_prior_kld = tf.reduce_mean(prior_kld)
+        stderr_prior_kld = tf.math.reduce_std(prior_kld) / args.num_trials**0.5
+
         print(
             f"\n{name} Kernel RMSE loss: {mean_rmse_loss.numpy()} +/- {2. * stderr_rmse_loss.numpy()}"
         )
@@ -386,6 +433,10 @@ def main():
 
         print(
             f"{name} Pred KLD: {mean_pred_kld.numpy()} +/- {2. * stderr_pred_kld.numpy()}"
+        )
+
+        print(
+            f"{name} Prior KLD: {mean_prior_kld.numpy()} +/- {2. * stderr_prior_kld.numpy()}"
         )
 
         # Save mean and stderr of MSE losses into a text file
@@ -412,6 +463,11 @@ def main():
         with open(os.path.join(results_path, f"pred-kld"), "a") as file:
             file.write(
                 f"{name} Pred KLD: {mean_pred_kld.numpy()} +/- {2. * stderr_pred_kld.numpy()}\n"
+            )
+
+        with open(os.path.join(results_path, f"prior-kld"), "a") as file:
+            file.write(
+                f"{name} Prior KLD: {mean_prior_kld.numpy()} +/- {2. * stderr_prior_kld.numpy()}\n"
             )
 
         # Save learnt sampler covariance as numpy and imshow
