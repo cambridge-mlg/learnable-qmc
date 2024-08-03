@@ -154,7 +154,8 @@ class UCICSVDataset(UCIDataset):
         if not os.path.exists(f"_data/zip"):
             os.makedirs("_data/zip", exist_ok=True)
 
-        if not os.path.exists(f"_data/zip/{self.name}"):
+        if not os.path.exists(f"_data/zip/{self.name}.zip"):
+            print(f"Downloading zip for {self.name}")
             file = wget.download(
                 self.url_to_tar, out=f"_data/zip/{self.name}.zip"
             )
@@ -168,53 +169,66 @@ class UCICSVDataset(UCIDataset):
         raise NotImplementedError
 
 
-class ConcreteCompressiveStrength(UCIDataset):
-    uci_id: int = 165
+class ConcreteCompressiveStrength(UCICSVDataset):
+
+    url_to_tar: str = (
+        "https://archive.ics.uci.edu/static/public/165/concrete+compressive+strength.zip"
+    )
     name: str = "concrete"
 
+    def csv_to_features_and_targets(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        df = pd.read_excel(f"_data/{self.name}/Concrete_Data.xls")
+        return df.iloc[:, :-1].values, df.iloc[:, -1:].values
 
-class Wine(UCIDataset):
-    uci_id: int = 109
+class Wine(UCICSVDataset):
+    url_to_tar: str = (
+        "https://archive.ics.uci.edu/static/public/109/wine.zip"
+    )
     name: str = "wine"
 
+    def csv_to_features_and_targets(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        df = pd.read_csv(f"_data/{self.name}/wine.data")
+        return df.iloc[:, 1:].values, df.iloc[:, :1].values
 
-class Abalone(UCIDataset):
-    uci_id: int = 1
+class Abalone(UCICSVDataset):
+    url_to_tar: str = (
+        "https://archive.ics.uci.edu/static/public/1/abalone.zip"
+    )
     name: str = "abalone"
 
-    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
-        data = fetch_ucirepo(id=self.uci_id).data
-        # Drop first column (binary "Sex" feature) from features dataframe
-        data.features = data.features.iloc[:, 1:]
-        return data.features, data.targets
+    def csv_to_features_and_targets(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        df = pd.read_csv(f"_data/{self.name}/abalone.data")
+        return df.iloc[:, 1:-1].values, df.iloc[:, -1:].values
 
 
-class CPU(UCIDataset):
-    uci_id: int = 29
+class CPU(UCICSVDataset):
+    url_to_tar: str = (
+        "https://archive.ics.uci.edu/static/public/29/computer+hardware.zip"
+    )
     name: str = "cpu"
 
-    def get_raw_inputs_and_outputs(self) -> Tuple[tf.Tensor, tf.Tensor]:
-        data = fetch_ucirepo(id=self.uci_id).data
+    def csv_to_features_and_targets(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        df = pd.read_csv(f"_data/{self.name}/machine.data")
 
-        # Drop first two columns (binary features "VendorName" and "ModelName")
-        features = data.features.iloc[:, 2:]
+        features = df.iloc[:, 2:].values
+        targets = df.iloc[:, -2:-1].values
 
-        # Set targets to the "PRP" (published relative performance) field (second to last)
-        targets = features.iloc[:, -2]
+        # Delete appropriate column from features
+        features = np.delete(features, -2, 1)
 
-        # Drop the "PRP" field from the features
-        features = np.delete(features, -2, axis=1)
-
-        return (
-            np.array(features, dtype=np.float32),
-            np.array(targets, dtype=np.float32)[:, None],
-        )
+        return features, targets
 
 
-class PowerPlant(UCIDataset):
-    uci_id: int = 294
+class PowerPlant(UCICSVDataset):
+
+    url_to_tar: str = (
+        "https://archive.ics.uci.edu/static/public/294/combined+cycle+power+plant.zip"
+    )
     name: str = "power"
 
+    def csv_to_features_and_targets(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        df = pd.read_excel(f"_data/{self.name}/CCPP/Folds5x2_pp.xlsx")
+        return df.iloc[:, :-1].values, df.iloc[:, -1:].values
 
 class Superconductivity(UCICSVDataset):
     url_to_tar: str = (

@@ -74,6 +74,32 @@ class HaltonSequence(JointDistribution):
         return seed, omega
 
 
+class SobolSequence(JointDistribution):
+    def __init__(
+        self,
+        dim: int,
+        num_points: int,
+        name: str = "halton_sequence",
+        **kwargs,
+    ):
+        super().__init__(name=name, num_points=num_points, dim=dim, **kwargs)
+
+    def __call__(self, seed: Seed, batch_size: int) -> tf.Tensor:
+        seed, omega_uniform = rand_halton(
+            seed=seed,
+            shape=(batch_size,),
+            num_samples=self.num_points,
+            dim=self.dim,
+            dtype=self.dtype,
+        )
+        omega = tfd.Normal(
+            loc=tf.zeros((), dtype=self.dtype),
+            scale=tf.ones((), dtype=self.dtype),
+        ).quantile(omega_uniform)
+
+        return seed, omega
+
+
 class GaussianCopula(JointDistribution):
     def __init__(
         self,

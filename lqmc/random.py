@@ -400,3 +400,52 @@ def rand_halton(
     )
 
     return seed, (halton + shift) % 1.0
+
+
+def rand_sobol(
+    seed: tf.Tensor,
+    num_samples: int,
+    shape: tf.TensorShape,
+    dim: int,
+    dtype: tf.DType,
+    skip: int = 0,
+) -> tf.Tensor:
+    """
+    Generate samples from a Sobol sequence of dimension `dim`, translated
+    by a random shift (modulo 1) and propagate a new random seed.
+
+    Arguments:
+        seed: Random seed for random number generator.
+        num_samples: Number of samples to generate.
+        shape: Shape of the output tensor.
+        dim: Dimension of the output tensor.
+        dtype: Data type of the output tensor.
+        skip: Number of initial samples to skip.
+
+    Returns:
+        seed: New random seed produced by splitting.
+        rand: Sobol samples of shape `shape` and dimension `dim`.
+    """
+
+    # Generate Sobol sequence: same for all sequences in a given batch
+    halton = tf.math.sobol_sample(
+        dim=dim,
+        num_results=num_samples,
+        skip=skip,
+        dtype=dtype,
+    )
+
+    # Add sufficient leading dimensions to the Sobol sequence samples
+    # to match the shape of the output tensor
+    sobol = tf.reshape(halton, (1,) * len(shape) + (num_samples, dim))
+
+    # Generate random shift: same for all samples of a given sequence,
+    # but different for each sequence
+    seed, shift = randu(
+        shape=shape + (1, dim),
+        seed=seed,
+        minval=tf.zeros((), dtype=dtype),
+        maxval=tf.ones((), dtype=dtype),
+    )
+
+    return seed, (sobol + shift) % 1.0
